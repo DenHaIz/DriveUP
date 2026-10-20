@@ -1,0 +1,7 @@
+# Build output (build.cmd). Release binaries are published on GitHub Releases, not committed.
+bin/
+obj/
+*.exe
+*.pdb
+# Logo variant sheets (design notes, not part of the app).
+logo-*.png

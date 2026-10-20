@@ -1,0 +1,5 @@
+# Normalize text files; batch files must keep CRLF to run correctly after a clone.
+* text=auto
+*.cmd text eol=crlf
+*.cs text eol=crlf
+*.manifest text eol=crlf
