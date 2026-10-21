@@ -274,7 +274,7 @@ namespace DriveUp
             float radius = ring / 2 - stroke / 2;
             var arc = new RectangleF(c.X - radius, c.Y - radius, radius * 2, radius * 2);
             float sec = Sec;
-            Color violet = Logo.Violet;
+            Color violet = Logo.Mark;
             Color accent = Anim.Blend(violet, Anim.Blend(bg, p.Warning, 0.88f), warn);
 
             // soft glow behind the ring on hover; the middle is painted in the same colour
@@ -361,7 +361,7 @@ namespace DriveUp
         {
             if (alpha <= 0.01f) return;
             var p = Theme.Current;
-            Color violet = Color.FromArgb((int)(255 * Math.Min(1, alpha)), Logo.Violet);
+            Color violet = Color.FromArgb((int)(255 * Math.Min(1, alpha)), Logo.Mark);
             float cx = pic.X + pic.Width / 2, h = pic.Height;
             float lineY = pic.Y + h * 0.9f, lineW = h * 0.62f;
             switch (kind)
@@ -398,7 +398,7 @@ namespace DriveUp
                         float tip = winBottom + len - ph * travel;
                         float a = (ph < 0.55f ? 1 : 1 - Smooth(0.55f, 0.97f, ph)) * alpha;
                         if (a <= 0.01f) continue;
-                        Logo.DrawArrow(g, Color.FromArgb((int)(255 * a), Logo.Violet), lw, new PointF(cx, tip + len), new PointF(cx, tip), len * 0.6f);
+                        Logo.DrawArrow(g, Color.FromArgb((int)(255 * a), Logo.Mark), lw, new PointF(cx, tip + len), new PointF(cx, tip), len * 0.6f);
                     }
                     g.Restore(st);
                     break;

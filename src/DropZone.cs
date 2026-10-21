@@ -172,7 +172,7 @@ namespace DriveUp
             float lw = Math.Max(S(2), tile * 0.075f);
             if (bt > 0.01f)
             {
-                using (var pen = new Pen(Color.FromArgb((int)(255 * bt), Logo.Violet), lw) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                using (var pen = new Pen(Color.FromArgb((int)(255 * bt), Logo.Mark), lw) { StartCap = LineCap.Round, EndCap = LineCap.Round })
                 {
                     float rr = tile * 0.26f;
                     g.DrawArc(pen, c.X - rr, c.Y - rr, rr * 2, rr * 2, (sec * 320) % 360, 250);
@@ -182,7 +182,7 @@ namespace DriveUp
             {
                 float bob = (float)Math.Sin(sec * 6) * S(3) * drag.Value - S(3) * pl;
                 float ah = tile * 0.5f;
-                Color ac = Color.FromArgb((int)(255 * (1 - bt)), Logo.Violet);
+                Color ac = Color.FromArgb((int)(255 * (1 - bt)), Logo.Mark);
                 using (var path = new GraphicsPath())
                 {
                     path.AddLine(c.X - ah * 0.55f, c.Y + ah * 0.55f, c.X + ah * 0.55f, c.Y + ah * 0.55f);

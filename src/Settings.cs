@@ -6,8 +6,9 @@ using System.Text;
 namespace DriveUp
 {
     /// <summary>
-    /// Portable settings: DriveUP.ini next to the exe, or %LOCALAPPDATA%\DriveUP when that folder is
-    /// read-only (e.g. Program Files). Nothing is written to the registry.
+    /// Portable settings: DriveUP.ini (DriveUP_Pro.ini) next to the exe, or %LOCALAPPDATA%\DriveUP when that
+    /// folder is read-only (e.g. Program Files). Nothing is written to the registry. Both editions share
+    /// the backup folder, so either one restores the other's backups.
     /// </summary>
     static class Settings
     {
@@ -20,6 +21,19 @@ namespace DriveUp
         public static DateTime LastCheck = DateTime.MinValue;
         /// <summary>Where driver backups go; empty = Documents\DriveUP Backup.</summary>
         public static string BackupRoot = "";
+#if PRO
+        /// <summary>The tuning mode applied last ("games", "work", "quiet"); empty = none.</summary>
+        public static string TuneMode = "";
+        /// <summary>
+        /// What each setting was before DriveUP Pro first changed it (setting id → its exact old state),
+        /// so any of them can be put back. Kept until the setting is returned.
+        /// </summary>
+        public static readonly System.Collections.Generic.Dictionary<string, string> TuneSaved =
+            new System.Collections.Generic.Dictionary<string, string>();
+        /// <summary>When each setting was changed and by which mode: id → "mode|ISO time".</summary>
+        public static readonly System.Collections.Generic.Dictionary<string, string> TuneWhen =
+            new System.Collections.Generic.Dictionary<string, string>();
+#endif
 
         static string dir;
 
@@ -38,8 +52,8 @@ namespace DriveUp
             }
         }
 
-        public static string IniPath { get { return Path.Combine(Dir, "DriveUP.ini"); } }
-        public static string LogPath { get { return Path.Combine(Dir, "DriveUP.log"); } }
+        public static string IniPath { get { return Path.Combine(Dir, Edition.Id + ".ini"); } }
+        public static string LogPath { get { return Path.Combine(Dir, Edition.Id + ".log"); } }
 
         public static string DefaultBackupRoot
         {
@@ -63,7 +77,7 @@ namespace DriveUp
             }
             catch
             {
-                string local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DriveUP");
+                string local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Edition.Id);
                 try { Directory.CreateDirectory(local); } catch { }
                 return local;
             }
@@ -97,6 +111,13 @@ namespace DriveUp
                 case "CheckOnStart": CheckOnStart = val == "1"; break;
                 case "LastCheck": LastCheck = ParseDate(val); break;
                 case "BackupRoot": BackupRoot = val; break;
+#if PRO
+                case "TuneMode": TuneMode = val; break;
+                default:
+                    if (key.StartsWith("Saved.", StringComparison.Ordinal) && key.Length > 6) TuneSaved[key.Substring(6)] = val;
+                    else if (key.StartsWith("When.", StringComparison.Ordinal) && key.Length > 5) TuneWhen[key.Substring(5)] = val;
+                    break;
+#endif
             }
         }
 
@@ -111,10 +132,25 @@ namespace DriveUp
             return d == DateTime.MinValue ? "" : d.ToString("o", CultureInfo.InvariantCulture);
         }
 
+#if PRO
+        static string OneLine(string v)
+        {
+            return (v ?? "").Replace('\r', ' ').Replace('\n', ' ');
+        }
+
+#endif
+        /// <summary>Saving can come from a background thread (DriveUP Pro tuning): one at a time.</summary>
+        public static readonly object Sync = new object();
+
         public static void Save()
         {
+            lock (Sync) SaveLocked();
+        }
+
+        static void SaveLocked()
+        {
             var sb = new StringBuilder();
-            sb.AppendLine("; DriveUP settings");
+            sb.AppendLine("; " + Edition.Name + " settings");
             sb.AppendLine("[Settings]");
             sb.AppendLine("Theme=" + Theme);
             sb.AppendLine("Language=" + Language);
@@ -122,8 +158,30 @@ namespace DriveUp
             sb.AppendLine("CheckOnStart=" + (CheckOnStart ? "1" : "0"));
             sb.AppendLine("LastCheck=" + FormatDate(LastCheck));
             sb.AppendLine("BackupRoot=" + BackupRoot);
-            try { File.WriteAllText(IniPath, sb.ToString(), new UTF8Encoding(false)); }
-            catch { }
+#if PRO
+            sb.AppendLine("TuneMode=" + TuneMode);
+            if (TuneSaved.Count > 0) sb.AppendLine("[Tuning]");
+            foreach (var kv in TuneSaved) sb.AppendLine("Saved." + kv.Key + "=" + OneLine(kv.Value));
+            foreach (var kv in TuneWhen) if (TuneSaved.ContainsKey(kv.Key)) sb.AppendLine("When." + kv.Key + "=" + OneLine(kv.Value));
+#endif
+            // Written aside and swapped in: a crash mid-write never leaves a half file (DriveUP Pro
+            // keeps the old values of changed settings here).
+            string tmp = IniPath + ".tmp";
+            try
+            {
+                File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(false));
+                if (File.Exists(IniPath)) File.Replace(tmp, IniPath, null);
+                else File.Move(tmp, IniPath);
+            }
+            catch
+            {
+                try
+                {
+                    File.WriteAllText(IniPath, sb.ToString(), new UTF8Encoding(false));
+                    File.Delete(tmp);
+                }
+                catch { }
+            }
         }
     }
 }

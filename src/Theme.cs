@@ -35,6 +35,20 @@ namespace DriveUp
             Danger = Hex(0xD93636), Success = Hex(0x16A34A), Warning = Hex(0xD97706),
         };
 
+#if PRO
+        // DriveUP Pro: crimson instead of violet, in step with its mark. Errors move to a warmer
+        // red-orange so they never read as the accent.
+        static Theme()
+        {
+            Dark.Accent = Hex(0xD6304F);
+            Dark.Selected = Hex(0x4A1F2B);
+            Dark.Danger = Hex(0xFF8A5B);
+            Light.Accent = Hex(0xC0263F);
+            Light.Selected = Hex(0xFBE3E8);
+            Light.Danger = Hex(0xD9541E);
+        }
+
+#endif
         public static Palette Current = Dark;
 
         /// <summary>Pixels per design pixel: monitor DPI times the window zoom.</summary>

@@ -12,11 +12,11 @@ namespace DriveUp
     {
         /// <summary>
         /// Name of the single-instance lock and of the "show" message. The test build
-        /// (DriveUP.dev.exe) has its own, so it never touches a running release copy.
+        /// (DriveUP.dev.exe) has its own, so it never touches a running release copy; so does DriveUP Pro.
         /// </summary>
         public static readonly string Instance =
             Path.GetFileNameWithoutExtension(Application.ExecutablePath).EndsWith(".dev", StringComparison.OrdinalIgnoreCase)
-                ? "DriveUP.Dev" : "DriveUP";
+                ? Edition.Id + ".Dev" : Edition.Id;
 
         [DllImport("user32.dll")]
         static extern bool PostMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -79,7 +79,7 @@ namespace DriveUp
                 Theme.Init(scale);
 
                 var form = new MainForm();
-                if (tab >= 1 && tab <= 4) form.StartTab = tab - 1;
+                if (tab >= 1 && tab <= (Edition.Pro ? 5 : 4)) form.StartTab = tab - 1;
                 if (paths.Length > 0) form.StartPaths = paths;
                 Application.Run(form);
             }

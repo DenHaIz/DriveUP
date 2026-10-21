@@ -9,7 +9,7 @@ using System.Windows.Forms;
 
 namespace DriveUp
 {
-    enum JournalKind { Update, Install, Backup, Cleanup }
+    enum JournalKind { Update, Install, Backup, Cleanup, Tune, TuneReturn }
 
     class JournalEntry
     {
@@ -27,6 +27,8 @@ namespace DriveUp
                     case JournalKind.Install: return L.T("Установка из файла", "Install from file");
                     case JournalKind.Backup: return L.T("Резервная копия", "Backup");
                     case JournalKind.Cleanup: return L.T("Удаление старых версий", "Old versions removed");
+                    case JournalKind.Tune: return L.T("Настройка системы", "System tuning");
+                    case JournalKind.TuneReturn: return L.T("Возврат настроек", "Settings returned");
                     default: return L.T("Обновление", "Update");
                 }
             }

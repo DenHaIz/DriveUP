@@ -15,6 +15,10 @@ namespace DriveUp
     static class Logo
     {
         public static readonly Color Violet = Color.FromArgb(0x9D, 0x6B, 0xFF);
+        /// <summary>DriveUP Pro: the same mark in crimson.</summary>
+        public static readonly Color Crimson = Color.FromArgb(0xD6, 0x30, 0x4F);
+        /// <summary>Colour of the mark in this edition (the big ring on the Updates tab follows it).</summary>
+        public static Color Mark = Edition.Pro ? Crimson : Violet;
         public static readonly Color Tile = Color.FromArgb(0x2B, 0x2D, 0x31);
 
         public const float SolidStart = 270f;   // 12 o'clock (GDI angles grow clockwise from 3 o'clock)
@@ -58,10 +62,10 @@ namespace DriveUp
             float ringW = size < 24 ? 24 : (small ? 17 : 10);
             float lineW = size < 24 ? 30 : (small ? 24 : 17);
 
-            using (var pen = new Pen(Violet, ringW) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (var pen = new Pen(Mark, ringW) { StartCap = LineCap.Round, EndCap = LineCap.Round })
                 g.DrawArc(pen, 40, 40, 176, 176, SolidStart, SolidSweep);
-            if (small) DrawUpload(g, Violet, lineW, 128, 78, 150, 176, 36, 72);
-            else DrawUpload(g, Violet, lineW, 128, 80, 148, 176, 34, 68);
+            if (small) DrawUpload(g, Mark, lineW, 128, 78, 150, 176, 36, 72);
+            else DrawUpload(g, Mark, lineW, 128, 80, 148, 176, 34, 68);
             g.Restore(state);
         }
 
