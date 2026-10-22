@@ -41,7 +41,7 @@ namespace DriveUp
                     Vendor = "NVIDIA", Device = d, VersionText = latest, CurrentText = installed,
                     Title = d.Name + (name.Length > 0 ? " — " + name : ""),
                     Date = VendorCheck.ParseDate(VendorCheck.Str(info, "ReleaseDateTime"), "ddd MMM dd, yyyy", "ddd MMM d, yyyy"),
-                    Url = page.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? page : "https://www.nvidia.com/en-us/drivers/",
+                    Url = page.StartsWith("https://www.nvidia.com/", StringComparison.OrdinalIgnoreCase) ? page : "https://www.nvidia.com/en-us/drivers/",
                 });
             }
             return result;

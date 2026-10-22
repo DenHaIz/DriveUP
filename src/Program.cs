@@ -61,7 +61,21 @@ namespace DriveUp
 #if PRO
             // DriveUP_Pro.exe /restore: puts every changed setting back without opening the window
             // (for when something went wrong and the tab is out of reach).
-            if (args.Any(a => a.Equals("/restore", StringComparison.OrdinalIgnoreCase))) return Tuner.ReturnAll();
+            if (args.Any(a => a.Equals("/restore", StringComparison.OrdinalIgnoreCase)))
+            {
+                bool alone;
+                using (var lockWindow = new Mutex(true, @"Local\" + Instance + ".SingleInstance", out alone))
+                {
+                    if (!alone)
+                    {
+                        MessageBox.Show(L.T("Закройте окно DriveUP Pro и запустите возврат снова — или верните всё в окне: «Оптимизация» → «Изменено» → «Вернуть всё».",
+                                            "Close the DriveUP Pro window and run the return again — or return everything in the window: Tuning → Changed → Return all."),
+                            "DriveUP Pro", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return 1;
+                    }
+                    return Tuner.ReturnAll();
+                }
+            }
 #endif
 
             bool first;

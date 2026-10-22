@@ -27,6 +27,9 @@ namespace DriveUp
 
         Machine machine;
         TuneMode selected, recommended;
+        /// <summary>The mode the plan rows on screen were built for (Apply uses this one), and whether a plan is being read.</summary>
+        TuneMode rowsMode;
+        bool planLoading;
         string reason = "";
         bool loaded, working, showChanged;
         int loadSeq;
@@ -64,7 +67,8 @@ namespace DriveUp
             btnReturnAll = new FlatButton("", "\uE7A7");
             btnReturnAll.SetBaseHeight(38);
             btnReturnAll.Visible = false;
-            btnReturnAll.Click += (s, e) => ReturnRows(list.Rows.Where(r => r.Kind == TuneKind.Changed && r.State == TuneState.Idle).ToList());
+            btnReturnAll.Click += (s, e) => ReturnRows(list.Rows.Where(r => r.Kind == TuneKind.Changed && r.Ready).ToList());
+            list.ReturnGroup += rows => ReturnRows(rows);
             foreach (Control c in new Control[] { view, list, info, btnApply, btnReturnAll }) listCard.Controls.Add(c);
             listCard.Resize += (s, e) => LayoutList();
             Controls.Add(listCard);
@@ -207,11 +211,11 @@ namespace DriveUp
                 int n = rows.Count(r => r.Kind == TuneKind.Changed);
                 info.SetText(n == 0 ? "" : L.Count(n, "параметр изменён", "параметра изменено", "параметров изменено", "setting changed", "settings changed") +
                     L.T(" · каждый можно вернуть отдельно", " · each one can be returned on its own"));
-                btnReturnAll.Enabled = !working && rows.Any(r => r.Kind == TuneKind.Changed && r.State == TuneState.Idle);
+                btnReturnAll.Enabled = !working && rows.Any(r => r.Kind == TuneKind.Changed && r.Ready);
                 return;
             }
-            int change = rows.Count(r => r.Kind == TuneKind.Change && r.Checked);
-            int back = rows.Count(r => r.Kind == TuneKind.Return && r.Checked);
+            int change = rows.Count(r => r.Kind == TuneKind.Change && r.Checked && r.Ready);
+            int back = rows.Count(r => r.Kind == TuneKind.Return && r.Checked && r.Ready);
             int reboot = rows.Count(r => r.Actionable && r.Checked && r.Tweak.NeedsReboot);
             int same = rows.Count(r => r.Kind == TuneKind.Same);
             var parts = new List<string>();
@@ -225,7 +229,7 @@ namespace DriveUp
             if (parts.Count == 0 && same > 0) parts.Add(L.T("всё уже настроено так", "everything is already set like this"));
             else if (same > 0) parts.Add(L.T("уже так: ", "already set: ") + same);
             info.SetText(string.Join(" · ", parts));
-            btnApply.Enabled = !working && change + back > 0;
+            btnApply.Enabled = !working && !planLoading && change + back > 0;
         }
 
         public override string Status
@@ -292,10 +296,13 @@ namespace DriveUp
                     UpdateSmart();
                     UpdateViewTexts();
                     UpdateEmpty();
+                    if (!changedView) rowsMode = mode;
                     if (first) list.SetRows(rows, true);
                     else Transition.CrossFade(list, () => list.SetRows(rows, false), 200);
                     UpdateInfo();
                     Host.UpdateStatus();
+                    // Another mode was picked while this was being read: show that one.
+                    if (!changedView && selected != null && selected != mode) Select(selected, false, true);
                 });
             }) { IsBackground = true, Name = "Tune read" }.Start();
         }
@@ -308,10 +315,11 @@ namespace DriveUp
         }
 
         /// <summary>Picks a mode: its plan slides in from the side the card is on.</summary>
-        void Select(TuneMode m, bool user)
+        void Select(TuneMode m, bool user, bool force = false)
         {
             if (m == null) return;
-            int from = selected != null ? Tuner.Modes.IndexOf(selected) : 0, to = Tuner.Modes.IndexOf(m);
+            if (m == selected && m == rowsMode && !force && !showChanged) return;
+            int from = rowsMode != null ? Tuner.Modes.IndexOf(rowsMode) : 0, to = Tuner.Modes.IndexOf(m);
             SetSelected(m);
             if (showChanged)
             {
@@ -321,6 +329,8 @@ namespace DriveUp
             if (!loaded || machine == null) return;
             int seq = ++loadSeq;
             var mc = machine;
+            planLoading = true;
+            UpdateInfo();
             new Thread(() =>
             {
                 List<TuneRow> rows;
@@ -329,6 +339,8 @@ namespace DriveUp
                 Post(() =>
                 {
                     if (seq != loadSeq) return;
+                    planLoading = false;
+                    rowsMode = m;
                     UpdateEmpty();
                     Transition.CrossFade(list, () => list.SetRows(rows, false), 240, Math.Sign(to - from) * S(28));
                     UpdateInfo();
@@ -377,8 +389,8 @@ namespace DriveUp
 
         void Apply()
         {
-            if (working || selected == null || showChanged) return;
-            var todo = list.Rows.Where(r => r.Actionable && r.Checked && r.State == TuneState.Idle).ToList();
+            if (working || planLoading || rowsMode == null || showChanged) return;
+            var todo = list.Rows.Where(r => r.Actionable && r.Checked && r.Ready).ToList();
             if (todo.Count == 0) return;
             if (!Host.CanStartOperation()) return;
             // Settings with a catch go only with the user's explicit yes, each one named with what it costs.
@@ -390,7 +402,7 @@ namespace DriveUp
                         "Each can be returned under Changed. Apply them along with the rest?"),
                     L.T("Применить", "Apply"), "\uE73E", true))
                 return;
-            var mode = selected;
+            var mode = rowsMode;
             SetWorking(true);
             new Thread(() =>
             {
@@ -450,8 +462,8 @@ namespace DriveUp
             if (failed == 0 && done > 0)
                 Anim.Delay(900, () =>
                 {
-                    if (IsDisposed || working || showChanged) return;
-                    view.SelectedIndex = 1;
+                    if (IsDisposed) return;
+                    if (!working && !showChanged) view.SelectedIndex = 1;
                     if (reboot) AskRestart();
                 });
             else if (reboot) AskRestart();

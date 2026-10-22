@@ -85,6 +85,14 @@ namespace DriveUp
             catch (System.InvalidOperationException) { }
         }
 
+        /// <summary>Runs on the UI thread, waits and returns the answer (false once the window is gone).</summary>
+        protected bool AskUI(System.Func<bool> ask)
+        {
+            bool answer = false;
+            RunUI(() => answer = ask());
+            return answer;
+        }
+
         /// <summary>Queues to the UI thread without waiting.</summary>
         protected void Post(System.Action a)
         {

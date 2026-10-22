@@ -16,6 +16,8 @@ namespace DriveUp
     class InfDriver : IRowInfo, ICheckRow, ISortable
     {
         public string Path = "", Name = "", ClassName = "", ClassGuid = "", Provider = "", VersionText = "";
+        /// <summary>SHA-256 of the .inf when it was read: it must be the same file that gets installed.</summary>
+        public string Hash = "";
         public DateTime? Date;
         public Version Version;
         public readonly List<string> HardwareIds = new List<string>();
@@ -139,8 +141,8 @@ namespace DriveUp
                 foreach (var f in Directory.GetFiles(dir, "*.inf")) found.Add(f);
                 foreach (var d in Directory.GetDirectories(dir))
                 {
-                    try { if ((File.GetAttributes(d) & FileAttributes.ReparsePoint) != 0) continue; }
-                    catch { continue; }
+                    // Junctions and symbolic links are skipped; OneDrive folders are not links and are walked.
+                    if (SafePath.IsLink(d)) continue;
                     Walk(d, found, depth + 1);
                 }
             }
@@ -148,12 +150,62 @@ namespace DriveUp
             catch (IOException) { }
         }
 
+        /// <summary>
+        /// Archives are unpacked into a folder only administrators can change (not the user's TEMP):
+        /// nothing running without elevation can swap the files before they are installed.
+        /// </summary>
         static string NewTemp()
         {
-            string dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DriveUP", Guid.NewGuid().ToString("N").Substring(0, 12));
-            Directory.CreateDirectory(dir);
+            string dir = SafePath.NewStaging();
             lock (tempDirs) tempDirs.Add(dir);
             return dir;
+        }
+
+        static bool InStaging(string path)
+        {
+            lock (tempDirs)
+                foreach (var d in tempDirs)
+                    if (path.StartsWith(d.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The .inf to hand to Windows. A driver from an unpacked archive is already in a protected folder;
+        /// one from a folder the user dropped is copied into a protected folder first (once per folder per
+        /// install run), so it cannot be swapped while it installs. Either way the .inf must still be the
+        /// one that was read when it was added: its catalog signature then covers the other files.
+        /// </summary>
+        public static string Prepare(InfDriver d, Dictionary<string, string> copies, out string error)
+        {
+            error = null;
+            try
+            {
+                string path = d.Path;
+                if (!InStaging(path))
+                {
+                    string dir = System.IO.Path.GetDirectoryName(path);
+                    string copy;
+                    if (!copies.TryGetValue(dir, out copy))
+                    {
+                        // Up to 4 GB / 20 000 files (a whole Downloads folder is not copied: checked in place).
+                        copy = SafePath.StageCopy(dir, 4L << 30, 20000);
+                        if (copy != null) lock (tempDirs) tempDirs.Add(copy);
+                        copies[dir] = copy;
+                    }
+                    if (copy != null) path = System.IO.Path.Combine(copy, System.IO.Path.GetFileName(path));
+                }
+                if (d.Hash.Length > 0 && SafePath.Sha256(path) != d.Hash)
+                {
+                    error = L.T("Файл драйвера изменился после добавления — добавьте его снова", "The driver file changed after it was added — add it again");
+                    return null;
+                }
+                return path;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return null;
+            }
         }
 
         static string Unzip(string zip)
@@ -202,6 +254,7 @@ namespace DriveUp
         public static InfDriver Parse(string path, IList<Device> devices)
         {
             var d = new InfDriver { Path = path, Name = System.IO.Path.GetFileName(path) };
+            try { d.Hash = SafePath.Sha256(path); } catch { }
             var sections = ReadSections(path);
             var strings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var key in sections.Keys.Where(k => k.Equals("strings", StringComparison.OrdinalIgnoreCase) || k.StartsWith("strings.", StringComparison.OrdinalIgnoreCase))

@@ -77,6 +77,11 @@ namespace DriveUp
     /// </summary>
     static class WinUpdate
     {
+        static volatile bool abort;
+
+        /// <summary>Asks Windows Update to stop the download / install that is running (it finishes or rolls back the current one).</summary>
+        public static void RequestAbort() { abort = true; }
+
         const string Criteria = "IsInstalled=0 and Type='Driver' and IsHidden=0";
 
         static dynamic NewSession()
@@ -169,6 +174,7 @@ namespace DriveUp
                 toDownload.Add(com);
             }
 
+            abort = false;
             // ----- download -----
             progress(0, 0, 0);
             dynamic downloader = session.CreateUpdateDownloader();
@@ -185,6 +191,7 @@ namespace DriveUp
             {
                 while (!(bool)job.IsCompleted)
                 {
+                    if (abort) { try { job.RequestAbort(); } catch { } }
                     try
                     {
                         dynamic pr = job.GetProgress();
@@ -237,6 +244,7 @@ namespace DriveUp
             {
                 while (!(bool)ijob.IsCompleted)
                 {
+                    if (abort) { try { ijob.RequestAbort(); } catch { } }
                     try
                     {
                         dynamic pr = ijob.GetProgress();

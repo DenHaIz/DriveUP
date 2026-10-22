@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Management;
+using System.Windows.Forms;
 
 namespace DriveUp
 {
@@ -71,12 +72,17 @@ namespace DriveUp
         {
             foreach (var d in Devices) { d.Update = null; d.Vendor = null; }
             // Vendor results point at the device objects of the list they were checked with: match by instance.
-            foreach (var v in Vendors)
+            // Once the device has another driver (it was just updated), the old finding no longer applies.
+            Vendors = Vendors.Where(v =>
             {
-                if (v.Device == null) continue;
+                if (v.Device == null) return true;
                 var d = Devices.FirstOrDefault(x => x.InstanceId == v.Device.InstanceId);
-                if (d != null) { d.Vendor = v; v.Device = d; }
-            }
+                if (d == null) return true;
+                if (d != v.Device && d.VersionText != v.Device.VersionText) return false;
+                d.Vendor = v;
+                v.Device = d;
+                return true;
+            }).ToList();
             if (Updates == null) return;
             foreach (var u in Updates)
             {
@@ -108,6 +114,23 @@ namespace DriveUp
         /// Asks for a restore point. <paramref name="ok"/> is true when one protects the change (made now,
         /// or made earlier today: Windows creates at most one a day). The text explains anything unusual.
         /// </summary>
+        /// <summary>Set once Create found that this Windows has no System Restore (Server): nothing to ask about then.</summary>
+        public static bool Unsupported;
+
+        /// <summary>
+        /// When a wanted restore point could not be made: asks (on the UI thread, waits) whether to go on
+        /// without one. True = go on. Windows without System Restore at all goes on without asking.
+        /// </summary>
+        public static bool ContinueWithout(Func<Func<bool>, bool> onUi, IWin32Window owner, string why)
+        {
+            if (Unsupported) return true;
+            return onUi(() => ThemedDialog.Confirm(owner, L.T("Точка восстановления не создана", "No restore point"),
+                L.T("Не удалось создать точку восстановления", "Could not create a restore point") + (string.IsNullOrEmpty(why) ? "" : ": " + why) + ".\n\n" +
+                L.T("Без неё изменения нельзя будет откатить через «Восстановление системы». Продолжить без точки?",
+                    "Without it the changes cannot be rolled back with System Restore. Go on without one?"),
+                L.T("Продолжить", "Go on"), "\uE768", true));
+        }
+
         public static string Create(string description, out bool ok)
         {
             ok = false;
@@ -141,7 +164,10 @@ namespace DriveUp
             catch (ManagementException ex)
             {
                 if (ex.ErrorCode == ManagementStatus.InvalidClass || ex.ErrorCode == ManagementStatus.InvalidNamespace || ex.ErrorCode == ManagementStatus.NotFound)
+                {
+                    Unsupported = true;
                     return L.T("в этой Windows нет восстановления системы", "this Windows has no System Restore");
+                }
                 if (ex.ErrorCode == ManagementStatus.AccessDenied) return L.T("нужны права администратора", "administrator rights are needed");
                 return ex.Message;
             }

@@ -277,8 +277,12 @@ namespace DriveUp
             if (installers.Count > 0)
             {
                 string path = installers[0];
+                string others = installers.Count > 1
+                    ? "\n\n" + L.T("Ещё программы установки (добавьте их по одной): ", "More installers (add them one at a time): ") +
+                      string.Join(", ", installers.Skip(1).Take(5).Select(System.IO.Path.GetFileName)) + (installers.Count > 6 ? "…" : "")
+                    : "";
                 if (ThemedDialog.Confirm(Host.Window, L.T("Программа установки", "Installer"),
-                    path + "\n\n" + L.T("Это программа установки, а не файл драйвера. Запустить её?\nОна запустится как при двойном щелчке и сама запросит права администратора — проверьте издателя в окне Windows.",
+                    path + others + "\n\n" + L.T("Это программа установки, а не файл драйвера. Запустить её?\nОна запустится как при двойном щелчке и сама запросит права администратора — проверьте издателя в окне Windows.",
                         "This is an installer, not a driver file. Run it?\nIt starts as on a double-click and asks for administrator rights itself — check the publisher in the Windows prompt."),
                     L.T("Запустить", "Run"), "\uE768", false))
                 {
@@ -286,6 +290,16 @@ namespace DriveUp
                     catch (Exception ex) { Host.ShowToast(ex.Message, ToastKind.Error); }
                 }
             }
+        }
+
+        /// <summary>The user chose not to install without a restore point: everything stays as it was.</summary>
+        void InstallCancelled(List<InfDriver> queue)
+        {
+            installing = false;
+            Host.EndBusy();
+            foreach (var d in queue) { d.State = InfState.Ready; UpdateRow(d); }
+            UpdateButtons();
+            Host.ShowToast(L.T("Установка отменена — ничего не изменено", "Install cancelled — nothing changed"), ToastKind.Info);
         }
 
         void ClearList()
@@ -366,6 +380,15 @@ namespace DriveUp
         {
             var queue = drivers.Where(d => d.IsChecked && d.Checkable).ToList();
             if (queue.Count == 0 || installing || !Host.CanStartOperation()) return;
+            // Drivers run in the kernel: say what is about to be installed and from where.
+            var sources = queue.Select(d => d.Provider.Length > 0 ? d.Provider : L.T("поставщик не указан", "no provider")).Distinct().Take(4).ToList();
+            var folders = queue.Select(d => System.IO.Path.GetDirectoryName(d.Path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (!ThemedDialog.Confirm(Host.Window, L.T("Установить драйверы?", "Install the drivers?"),
+                    L.Count(queue.Count, "драйвер", "драйвера", "драйверов", "driver", "drivers") + L.T(" от: ", " from: ") + string.Join(", ", sources) + "\n" +
+                    L.T("Папка: ", "Folder: ") + (folders.Count == 1 ? folders[0] : folders[0] + L.T(" и ещё ", " and ") + (folders.Count - 1)) + "\n\n" +
+                    L.T("Устанавливайте драйверы только из источников, которым доверяете.", "Install drivers only from sources you trust."),
+                    L.T("Установить", "Install"), "\uE896", false))
+                return;
             installing = true;
             foreach (var d in queue) { d.State = InfState.Ready; d.Error = ""; UpdateRow(d); }
             UpdateButtons();
@@ -381,8 +404,14 @@ namespace DriveUp
                     Post(() => summary.SetText(L.T("Создаём точку восстановления…", "Creating a restore point…")));
                     rpError = SysRestore.Create("DriveUP: " + L.T("установка драйвера", "driver install"), out rpOk);
                     if (rpOk) rpError = null;
+                    else if (!SysRestore.ContinueWithout(AskUI, Host.Window, rpError))
+                    {
+                        Post(() => InstallCancelled(queue));
+                        return;
+                    }
                 }
                 bool reboot = false;
+                var copies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var d in queue)
                 {
                     var drv = d;
@@ -392,12 +421,19 @@ namespace DriveUp
                         UpdateRow(drv);
                         summary.SetText(L.T("Установка: ", "Installing: ") + drv.Name);
                     });
-                    bool rb;
-                    int code = InfFiles.Install(drv.Path, owner, out rb);
+                    bool rb = false;
+                    string prepError;
+                    string path = InfFiles.Prepare(drv, copies, out prepError);
+                    int code = path != null ? InfFiles.Install(path, owner, out rb) : -1;
                     if (rb) reboot = true;
                     RunUI(() =>
                     {
-                        if (code == 0) drv.State = InfState.Installed;
+                        if (code == -1)
+                        {
+                            drv.State = InfState.Failed;
+                            drv.Error = prepError;
+                        }
+                        else if (code == 0) drv.State = InfState.Installed;
                         else if (code == 259) drv.State = InfState.Staged;
                         else
                         {

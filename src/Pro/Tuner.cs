@@ -66,6 +66,8 @@ namespace DriveUp
         public long ProcMemory;
 
         public bool Actionable { get { return Kind == TuneKind.Change || Kind == TuneKind.Return; } }
+        /// <summary>Can be run (again): not started yet, or failed last time.</summary>
+        public bool Ready { get { return State == TuneState.Idle || State == TuneState.Failed; } }
     }
 
     /// <summary>
@@ -559,6 +561,8 @@ namespace DriveUp
             var steps = mode.Steps(m).Where(s =>
             {
                 if (s == null) return false;
+                // Laptops: the power mode is changed for mains only, so not while on battery.
+                if (s.Tweak is PowerPlan && m.Mobile && m.OnBattery) return false;
                 if (s.Warn != null) s.Optional = true;
                 try { return s.Tweak.Available(m); }
                 catch { return false; }
@@ -569,7 +573,7 @@ namespace DriveUp
                 if (!off && !offer) continue;
                 try { if (!x.When(m) || !x.Tweak.Available(m)) continue; }
                 catch { continue; }
-                steps.Add(new TuneStep { Tweak = x.Tweak, Value = x.Value, Reason = x.Reason, Optional = !off, Warn = x.Warn });
+                steps.Add(new TuneStep { Tweak = x.Tweak, Value = x.Value, Reason = x.Reason, Optional = !off || x.Warn != null, Warn = x.Warn });
             }
             List<StartupFound> found;
             try { found = StartupScan.Find(); }
@@ -579,7 +583,7 @@ namespace DriveUp
                 bool off = mode.StartupOff.Contains(f.Rule.Level), offer = mode.StartupOffer.Contains(f.Rule.Level);
                 if (!off && !offer) continue;
                 // A program found twice (Run key and Store task) is offered once per entry; both are real.
-                steps.Add(new TuneStep { Tweak = f.Tweak, Value = "0", Reason = f.Rule.Reason, Optional = !off, Warn = f.Rule.Warn });
+                steps.Add(new TuneStep { Tweak = f.Tweak, Value = "0", Reason = f.Rule.Reason, Optional = !off || f.Rule.Warn != null, Warn = f.Rule.Warn });
             }
             return steps;
         }
@@ -608,7 +612,7 @@ namespace DriveUp
                     rows.Add(new TuneRow
                     {
                         Tweak = t, Category = t.Category, Kind = same ? TuneKind.Same : TuneKind.Change, Target = step.Value,
-                        Now = now, To = step.Value, Reason = step.Reason, Checked = !same && !step.Optional, Warn = step.Warn,
+                        Now = now, To = step.Value, Reason = step.Reason, Checked = !same && !step.Optional && step.Warn == null, Warn = step.Warn,
                     });
                 }
                 else if (was != null)
@@ -622,6 +626,13 @@ namespace DriveUp
                     });
                 }
             }
+            // When the mode switches the plan, values read now are those of the old plan: write them all.
+            if (rows.Any(r => r.Tweak is PowerPlan && r.Kind == TuneKind.Change))
+                foreach (var r in rows.Where(r => r.Tweak is PowerSetting && r.Kind == TuneKind.Same))
+                {
+                    r.Kind = TuneKind.Change;
+                    r.Checked = r.Warn == null;
+                }
             CountRunning(rows);
             return WithHeaders(rows);
         }
@@ -701,28 +712,41 @@ namespace DriveUp
             string raw = Saved(t.Id);
             bool fresh = raw == null;
             string stamp = mode.Id + "|" + DateTime.Now.ToString("s", CultureInfo.InvariantCulture);
-            if (fresh)
+            string extended = fresh ? null : t.Extend(raw);
+            if (fresh || extended != null)
             {
-                raw = t.Capture();
+                if (fresh) raw = t.Capture();
+                else raw = extended;
                 lock (Settings.Sync)
                 {
                     Settings.TuneSaved[t.Id] = raw;
                     Settings.TuneWhen[t.Id] = stamp;
                 }
-                Settings.Save();
+                // Nothing changes unless the old state is safely stored.
+                if (!Settings.Save())
+                {
+                    if (fresh) lock (Settings.Sync) { Settings.TuneSaved.Remove(t.Id); Settings.TuneWhen.Remove(t.Id); }
+                    throw new System.IO.IOException(L.T("Не удалось сохранить прежнее значение — ничего не изменено", "Could not store the old value — nothing changed"));
+                }
             }
             try { t.Set(value); }
             catch
             {
                 if (fresh)
                 {
-                    try { t.Restore(raw); } catch { }
-                    Forget(t.Id);
+                    // Forgotten only once really back as it was; otherwise it stays under Changed.
+                    bool back = false;
+                    try { t.Restore(raw); back = true; } catch { }
+                    if (back) Forget(t.Id);
                 }
                 throw;
             }
             lock (Settings.Sync) Settings.TuneWhen[t.Id] = stamp;
-            Settings.Save();
+            // Set back to exactly how it was before DriveUP Pro: nothing left to return.
+            string now = null;
+            try { now = t.Capture(); } catch { }
+            if (now == raw) Forget(t.Id);
+            else Settings.Save();
         }
 
         /// <summary>Puts one setting back exactly as it was before DriveUP Pro changed it.</summary>

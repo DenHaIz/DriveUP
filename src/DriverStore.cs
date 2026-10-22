@@ -134,7 +134,10 @@ namespace DriveUp
                 if (grp.Count() < 2) continue;
                 var newest = grp.OrderByDescending(x => x.Version ?? new Version(0, 0)).ThenByDescending(x => x.Date ?? DateTime.MinValue).First();
                 if (!newest.InUse) continue;
-                foreach (var x in grp) x.Outdated = x != newest && !x.InUse;
+                // Only really older ones: the same version (variants for other hardware) or an unknown one stays.
+                foreach (var x in grp)
+                    x.Outdated = x != newest && !x.InUse && x.Version != null && newest.Version != null &&
+                                 (x.Version < newest.Version || (x.Version == newest.Version && x.Date.HasValue && newest.Date.HasValue && x.Date < newest.Date));
             }
             return list;
         }
@@ -175,7 +178,7 @@ namespace DriveUp
             root = Path.GetFullPath(root);
             // The copy is written with administrator rights: never through a link someone placed on the way.
             for (var d = new DirectoryInfo(root); d != null; d = d.Parent)
-                if (d.Exists && (d.Attributes & FileAttributes.ReparsePoint) != 0 && d.Parent != null)
+                if (d.Exists && d.Parent != null && SafePath.IsLink(d.FullName))
                     throw new IOException(L.T("папка копий ведёт по ссылке в другое место — выберите обычную папку",
                         "the backup folder is a link to another place — choose a regular folder"));
             string name = DateTime.Now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture);
@@ -183,7 +186,7 @@ namespace DriveUp
             for (int i = 2; Directory.Exists(path); i++) path = Path.Combine(root, name + " (" + i + ")");
             Directory.CreateDirectory(path);
             Protect(path);
-            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            if (SafePath.IsLink(path))
                 throw new IOException(L.T("папка копий подменена ссылкой", "the backup folder was replaced by a link"));
             return path;
         }
@@ -259,14 +262,14 @@ namespace DriveUp
         {
             if (!Directory.Exists(from)) throw new DirectoryNotFoundException(L.T("Папка пакета не найдена в хранилище", "Package folder not found in the store"));
             Directory.CreateDirectory(to);
-            if ((File.GetAttributes(to) & FileAttributes.ReparsePoint) != 0)
+            if (SafePath.IsLink(to))
                 throw new IOException(L.T("папка копии подменена ссылкой", "the copy folder was replaced by a link"));
             // Fresh folders only: never overwrite something that is already there.
             foreach (var f in Directory.GetFiles(from)) File.Copy(f, Path.Combine(to, Path.GetFileName(f)), false);
             foreach (var d in Directory.GetDirectories(from))
             {
                 // The store has no links of its own; skip any so the copy never leaves the package.
-                if ((File.GetAttributes(d) & FileAttributes.ReparsePoint) != 0) continue;
+                if (SafePath.IsLink(d)) continue;
                 CopyDir(d, Path.Combine(to, Path.GetFileName(d)));
             }
         }

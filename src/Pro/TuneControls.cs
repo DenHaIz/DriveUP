@@ -138,6 +138,10 @@ namespace DriveUp
 
         public event EventHandler CheckedChanged;
         public event Action<TuneRow> ReturnClicked;
+        /// <summary>A group title in the "Changed" list was clicked: return all of its rows.</summary>
+        public event Action<List<TuneRow>> ReturnGroup;
+        readonly ToolTip tip = new ToolTip { InitialDelay = 500, ReshowDelay = 200, AutoPopDelay = 15000 };
+        TuneRow tipRow;
         public string EmptyText = "", EmptyGlyph = "";
         /// <summary>While true, clicks change nothing (settings are being applied).</summary>
         public bool Locked;
@@ -299,7 +303,7 @@ namespace DriveUp
                 float h = H(r);
                 if (pt.Y >= y && pt.Y < y + h)
                 {
-                    onButton = r.Kind == TuneKind.Changed && r.State == TuneState.Idle && ButtonRect(y).Contains(pt);
+                    onButton = r.Kind == TuneKind.Changed && r.Ready && ButtonRect(y).Contains(pt);
                     return r;
                 }
                 y += h;
@@ -311,8 +315,8 @@ namespace DriveUp
         {
             if (r == null || Locked) return false;
             if (r.Kind == TuneKind.Changed) return onButton;
-            if (r.Kind == TuneKind.Header) return Group(r).Any(x => x.Actionable && x.State == TuneState.Idle);
-            return r.Actionable && r.State == TuneState.Idle;
+            if (r.Kind == TuneKind.Header) return Group(r).Any(x => (x.Actionable || x.Kind == TuneKind.Changed) && x.Ready);
+            return r.Actionable && r.Ready;
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -335,6 +339,27 @@ namespace DriveUp
                 hoverBtn = hb;
             }
             Cursor = hr != null || hb != null ? Cursors.Hand : Cursors.Default;
+            if (r != tipRow)
+            {
+                tipRow = r;
+                tip.SetToolTip(this, r != null && r.Kind != TuneKind.Header ? TipText(r) : null);
+            }
+        }
+
+        /// <summary>Everything about a row in full: the list cuts long texts short.</summary>
+        static string TipText(TuneRow r)
+        {
+            var lines = new List<string> { r.Tweak.Name() };
+            if (r.Kind == TuneKind.Changed)
+                lines.Add(L.T("Было: ", "Was: ") + Show(r, r.Was) + L.T("   Сейчас: ", "   Now: ") + Show(r, r.Now));
+            else if (r.Kind == TuneKind.Same) lines.Add(L.T("Уже: ", "Already: ") + Show(r, r.Now));
+            else lines.Add(L.T("Сейчас: ", "Now: ") + Show(r, r.Now) + L.T("   Станет: ", "   Becomes: ") + Show(r, r.To));
+            string reason = r.Reason != null ? r.Reason() : "";
+            if (reason.Length > 0 && r.Kind != TuneKind.Changed) lines.Add(reason);
+            if (r.Warn != null) lines.Add(L.T("Внимание: ", "Note: ") + r.Warn());
+            if (r.Tweak.NeedsReboot) lines.Add(L.T("Заработает после перезагрузки.", "Takes effect after a restart."));
+            if (r.State == TuneState.Failed && r.Error.Length > 0) lines.Add(L.T("Ошибка: ", "Error: ") + r.Error);
+            return string.Join("\n", lines);
         }
 
         protected override void OnMouseLeave(EventArgs e)
@@ -360,7 +385,14 @@ namespace DriveUp
             if (r.Kind == TuneKind.Header)
             {
                 // The group title ticks the whole group, or unticks it when all are ticked.
-                var items = Group(r).Where(x => x.Actionable && x.State == TuneState.Idle).ToList();
+                if (Group(r).Any(x => x.Kind == TuneKind.Changed))
+                {
+                    // In the "Changed" list a group title returns its whole group.
+                    var back = Group(r).Where(x => x.Kind == TuneKind.Changed && x.Ready).ToList();
+                    if (back.Count > 0 && ReturnGroup != null) ReturnGroup(back);
+                    return;
+                }
+                var items = Group(r).Where(x => x.Actionable && x.Ready).ToList();
                 bool all = items.All(x => x.Checked);
                 foreach (var x in items)
                 {
@@ -482,20 +514,24 @@ namespace DriveUp
                 float value = act.Sum(i => Get(check, i)) / act.Count;
                 bool partial = on > 0 && on < act.Count;
                 CheckMark.Draw(g, new RectangleF(x, top + (S(32) - S(18)) / 2f, S(18), S(18)), (partial ? 1 : value) * a, partial, h,
-                    !Locked && act.Any(i => i.State == TuneState.Idle), rowBg);
+                    !Locked && act.Any(i => i.Ready), rowBg);
             }
             string title = Tuner.CategoryName(r.Category);
             TextRenderer.DrawText(g, title, Theme.HeadFont, new Rectangle(S(48), (int)top, w - S(220), S(32)), Anim.Blend(bg, p.Text, a), TextLeft);
             string count;
             if (items.Any(i => i.Kind == TuneKind.Changed))
-                count = L.Count(items.Count, "параметр", "параметра", "параметров", "setting", "settings");
+            {
+                count = L.Count(items.Count, "параметр", "параметра", "параметров", "setting", "settings") +
+                        (items.Any(i => i.Ready) && !Locked ? L.T(" · вернуть группу", " · return group") : "");
+            }
             else
             {
                 int on = act.Count(i => i.Checked), same = items.Count(i => i.Kind == TuneKind.Same);
                 count = act.Count > 0 ? L.T("выбрано ", "") + on + L.T(" из ", " of ") + act.Count + L.T("", " picked") : "";
                 if (same > 0) count += (count.Length > 0 ? " · " : "") + L.T("уже так: ", "already set: ") + same;
             }
-            TextRenderer.DrawText(g, count, Theme.SmallFont, new Rectangle(w - S(260), (int)top, S(246), S(32)), Anim.Blend(bg, p.TextDim, a),
+            TextRenderer.DrawText(g, count, Theme.SmallFont, new Rectangle(w - S(260), (int)top, S(246), S(32)),
+                Anim.Blend(bg, Anim.Blend(p.TextDim, p.Accent, items.Any(i => i.Kind == TuneKind.Changed) ? h : 0), a),
                 TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             g.SmoothingMode = SmoothingMode.None;
         }
@@ -518,7 +554,7 @@ namespace DriveUp
             float ink = a * (r.Actionable ? 0.62f + 0.38f * on : (r.Kind == TuneKind.Same ? 0.75f : 1));
 
             if (r.Actionable)
-                CheckMark.Draw(g, new RectangleF(S(18), y + (RowH - S(18)) / 2f, S(18), S(18)), Get(check, r) * a, false, h, !Locked && r.State == TuneState.Idle, rowBg);
+                CheckMark.Draw(g, new RectangleF(S(18), y + (RowH - S(18)) / 2f, S(18), S(18)), Get(check, r) * a, false, h, !Locked && r.Ready, rowBg);
             else if (r.Kind == TuneKind.Same)
                 using (var pen = new Pen(Anim.Blend(bg, p.Success, a * 0.9f), Math.Max(1.6f, S(2) * 0.9f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
                 {
@@ -601,7 +637,7 @@ namespace DriveUp
             var p = Theme.Current;
             float st = Get(stateT, r);
             float cx = w - S(30), cy = y + RowH / 2f;
-            if (r.Kind == TuneKind.Changed && r.State == TuneState.Idle)
+            if (r.Kind == TuneKind.Changed && r.Ready)
             {
                 var br = ButtonRect(y);
                 float bh = Get(btnHover, r);

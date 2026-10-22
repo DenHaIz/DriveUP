@@ -29,6 +29,7 @@ namespace DriveUp
 
         public BackupPage(IHost host) : base(host)
         {
+            Inventory.Changed += () => { if (loaded) stale = true; };
             toolbar.Dock = DockStyle.Top;
             toolbar.Height = S(60);
             filter = new Segmented(new[] { "", "" }, new[] { "", "" }, 0);
@@ -158,6 +159,18 @@ namespace DriveUp
         public override void FocusSearch() { search.FocusBox(); }
 
         protected override void FirstActivate() { Load(); }
+
+        // Drivers were installed meanwhile (devices reloaded): "in use" and "old version" may have changed.
+        bool stale;
+
+        protected override void OnActivated()
+        {
+            if (stale && loaded && !working && !loading)
+            {
+                stale = false;
+                Load();
+            }
+        }
 
         public override void RefreshData()
         {

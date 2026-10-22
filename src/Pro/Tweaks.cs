@@ -330,6 +330,11 @@ namespace DriveUp
         public virtual bool Available(Machine m) { return true; }
         /// <summary>Whether the setting already is as the target asks (targets may leave parts as they are).</summary>
         public virtual bool Matches(string now, string target) { return now == target; }
+        /// <summary>
+        /// For a setting whose old state has more than one part (a value per power plan): the saved state
+        /// with the part about to be changed added, or null when it is already there. Saved before Set.
+        /// </summary>
+        public virtual string Extend(string saved) { return null; }
 
         public string Current() { return ValueOf(Capture()); }
     }
@@ -442,8 +447,29 @@ namespace DriveUp
             Pair = pair;
         }
 
-        public override string Capture() { return Reg.Capture(false, Path, Value); }
-        public override void Restore(string raw) { Reg.Restore(false, Path, Value, raw); }
+        /// <summary>Only this pair: "p:value" or "p-" (not in the string). Older saves hold the whole string ("s:..." / "-").</summary>
+        public override string Capture()
+        {
+            string v;
+            return Parse(Reg.Get(false, Path, Value) as string).TryGetValue(Pair, out v) ? "p:" + v : "p-";
+        }
+
+        public override void Restore(string raw)
+        {
+            string v = null;
+            if (raw.StartsWith("p:")) v = raw.Substring(2);
+            else if (raw.StartsWith("s:")) Parse(raw.Substring(2)).TryGetValue(Pair, out v);
+            var d = Parse(Reg.Get(false, Path, Value) as string);
+            if (v == null) d.Remove(Pair);
+            else d[Pair] = v;
+            Write(d);
+        }
+
+        void Write(Dictionary<string, string> d)
+        {
+            if (d.Count == 0) Reg.Delete(false, Path, Value);
+            else Reg.SetString(false, Path, Value, string.Join("", d.Select(kv => kv.Key + "=" + kv.Value + ";")));
+        }
 
         static Dictionary<string, string> Parse(string s)
         {
@@ -459,6 +485,7 @@ namespace DriveUp
         public override string ValueOf(string raw)
         {
             string v;
+            if (raw.StartsWith("p:")) return raw.Substring(2) == "1" ? "1" : "0";
             return raw.StartsWith("s:") && Parse(raw.Substring(2)).TryGetValue(Pair, out v) && v == "1" ? "1" : "0";
         }
 
@@ -466,7 +493,7 @@ namespace DriveUp
         {
             var d = Parse(Reg.Get(false, Path, Value) as string);
             d[Pair] = value == "1" ? "1" : "0";
-            Reg.SetString(false, Path, Value, string.Join("", d.Select(kv => kv.Key + "=" + kv.Value + ";")));
+            Write(d);
         }
 
         public override string Describe(string value) { return value == "1" ? L.T("включены", "on") : L.T("выключены", "off"); }
@@ -736,6 +763,16 @@ namespace DriveUp
 
         public static bool HasOverlay { get { return Overlay.HasValue; } }
 
+        /// <summary>Running on battery now (the power mode is kept per power source).</summary>
+        public static bool OnBattery
+        {
+            get
+            {
+                if (Fake) return Reg.Dword(false, "Power", "OnBattery") == 1;
+                return SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Offline;
+            }
+        }
+
         public static void SetOverlay(Guid mode)
         {
             if (Fake) { Reg.SetString(false, "Power", "Overlay", mode.ToString()); return; }
@@ -771,26 +808,34 @@ namespace DriveUp
     /// </summary>
     class PowerPlan : Tweak
     {
+        /// <summary>"plan|power mode|ac or dc": the power mode belongs to the power source it was read on.</summary>
         public override string Capture()
         {
             Guid? o = PowerApi.Overlay;
-            return PowerApi.Active.ToString() + "|" + (o.HasValue ? o.Value.ToString() : "");
+            return PowerApi.Active.ToString() + "|" + (o.HasValue ? o.Value.ToString() : "") + "|" + (PowerApi.OnBattery ? "dc" : "ac");
         }
 
         public override void Restore(string raw)
         {
             var parts = raw.Split('|');
             Guid scheme, mode;
-            if (parts.Length != 2 || !Guid.TryParse(parts[0], out scheme)) return;
+            if (parts.Length < 2 || !Guid.TryParse(parts[0], out scheme)) return;
+            bool hasMode = parts[1].Length > 0 && Guid.TryParse(parts[1], out mode) && PowerApi.HasOverlay;
+            // The power mode can only be set for the source the computer runs on now: never write the mains
+            // value into the battery side (or back). Older saves (two parts) did not record the source.
+            if (hasMode && parts.Length > 2 && parts[2] != (PowerApi.OnBattery ? "dc" : "ac"))
+                throw new InvalidOperationException(parts[2] == "ac"
+                    ? L.T("Подключите зарядку, чтобы вернуть режим питания", "Plug in the charger to return the power mode")
+                    : L.T("Отключите зарядку, чтобы вернуть режим питания от батареи", "Unplug the charger to return the battery power mode"));
             PowerApi.Activate(scheme);
-            if (parts[1].Length > 0 && Guid.TryParse(parts[1], out mode) && PowerApi.HasOverlay) PowerApi.SetOverlay(mode);
+            if (hasMode && Guid.TryParse(parts[1], out mode)) PowerApi.SetOverlay(mode);
         }
 
         public override string ValueOf(string raw)
         {
             var parts = raw.Split('|');
             Guid scheme, mode;
-            if (parts.Length != 2 || !Guid.TryParse(parts[0], out scheme)) return "balanced";
+            if (parts.Length < 2 || !Guid.TryParse(parts[0], out scheme)) return "balanced";
             if (scheme == PowerApi.HighPerformance || scheme == PowerApi.Ultimate) return "perf";
             if (scheme == PowerApi.PowerSaver) return "saver";
             if (scheme != PowerApi.Balanced) return "plan:" + scheme;
@@ -807,9 +852,11 @@ namespace DriveUp
             Guid plan = value == "perf" ? PowerApi.HighPerformance : (value == "saver" ? PowerApi.PowerSaver : PowerApi.Balanced);
             // Laptops and Modern Standby: never a classic plan (hidden or unsupported there, and the
             // maker's power software expects Balanced), only the power mode of the Settings app.
-            bool standby = Tuner.Pc != null ? Tuner.Pc.ModernStandby : PowerApi.ModernStandby();
             bool mobile = Tuner.Pc == null || Tuner.Pc.Mobile;
-            if (plan != PowerApi.Balanced && !standby && (!mobile || !PowerApi.HasOverlay) && PowerApi.Exists(plan))
+            // On a laptop only the mains side is ever changed: on battery nothing happens.
+            if (mobile && PowerApi.OnBattery)
+                throw new InvalidOperationException(L.T("Подключите зарядку: режим питания меняется только для работы от сети", "Plug in the charger: only the mains power mode is changed"));
+            if (plan != PowerApi.Balanced && !mobile && PowerApi.Exists(plan))
             {
                 PowerApi.Activate(plan);
                 return;
@@ -855,20 +902,36 @@ namespace DriveUp
             return s + "|" + PowerApi.Read(s, sub, setting, true) + "|" + PowerApi.Read(s, sub, setting, false);
         }
 
-        public override void Restore(string raw)
+        /// <summary>The old state is "plan|ac|dc", one per power plan it was changed in, separated by ";".</summary>
+        public override string Extend(string saved)
         {
-            var parts = raw.Split('|');
-            Guid scheme;
-            uint ac, dc;
-            if (parts.Length != 3 || !Guid.TryParse(parts[0], out scheme) || !uint.TryParse(parts[1], out ac) || !uint.TryParse(parts[2], out dc)) return;
-            PowerApi.Write(scheme, sub, setting, ac, dc);
-            // A changed plan takes effect once it is set active again.
-            if (PowerApi.Active == scheme) PowerApi.Activate(scheme);
+            string scheme = PowerApi.Active.ToString();
+            foreach (var part in saved.Split(';'))
+                if (part.StartsWith(scheme + "|", StringComparison.OrdinalIgnoreCase)) return null;
+            return saved + ";" + Capture();
         }
 
+        public override void Restore(string raw)
+        {
+            Guid active = PowerApi.Active;
+            bool touched = false;
+            foreach (var entry in raw.Split(';'))
+            {
+                var parts = entry.Split('|');
+                Guid scheme;
+                uint ac, dc;
+                if (parts.Length != 3 || !Guid.TryParse(parts[0], out scheme) || !uint.TryParse(parts[1], out ac) || !uint.TryParse(parts[2], out dc)) continue;
+                PowerApi.Write(scheme, sub, setting, ac, dc);
+                if (scheme == active) touched = true;
+            }
+            // A changed plan takes effect once it is set active again.
+            if (touched) PowerApi.Activate(active);
+        }
+
+        /// <summary>The value in the plan that was active first (before DriveUP Pro).</summary>
         public override string ValueOf(string raw)
         {
-            var parts = raw.Split('|');
+            var parts = raw.Split(';')[0].Split('|');
             return parts.Length == 3 ? parts[1] + "," + parts[2] : "";
         }
 

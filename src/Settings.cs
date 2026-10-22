@@ -85,6 +85,16 @@ namespace DriveUp
 
         public static void Load()
         {
+            LoadIni();
+#if PRO
+            // Old states kept by 1.1 / 1.2 in the .ini are kept (moved to the registry on the next save);
+            // the registry wins where both have one.
+            LoadTuning();
+#endif
+        }
+
+        static void LoadIni()
+        {
             string path = IniPath;
             if (!File.Exists(path)) return;
             try
@@ -132,22 +142,82 @@ namespace DriveUp
             return d == DateTime.MinValue ? "" : d.ToString("o", CultureInfo.InvariantCulture);
         }
 
-#if PRO
-        static string OneLine(string v)
-        {
-            return (v ?? "").Replace('\r', ' ').Replace('\n', ' ');
-        }
-
-#endif
         /// <summary>Saving can come from a background thread (DriveUP Pro tuning): one at a time.</summary>
         public static readonly object Sync = new object();
 
-        public static void Save()
+        /// <summary>Writes the settings; false when they could not be stored (DriveUP Pro then changes nothing).</summary>
+        public static bool Save()
         {
-            lock (Sync) SaveLocked();
+            lock (Sync)
+            {
+                bool ok = SaveLocked();
+#if PRO
+                ok &= SaveTuning();
+#endif
+                return ok;
+            }
         }
 
-        static void SaveLocked()
+#if PRO
+        /// <summary>
+        /// The old states of changed settings live in HKLM\SOFTWARE\DriveUP Pro: only administrators can
+        /// change them, they survive deleting or moving the exe, and text is kept exactly. Older versions
+        /// kept them in the .ini; those are read once and moved here.
+        /// </summary>
+        /// <summary>Tests: the old states go to this HKCU key instead.</summary>
+        public static string TestStore;
+
+        static Microsoft.Win32.RegistryKey TuningKey(bool write)
+        {
+            if (TestStore != null)
+                return write ? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(TestStore) : Microsoft.Win32.Registry.CurrentUser.OpenSubKey(TestStore);
+            using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64))
+                return write ? hklm.CreateSubKey(@"SOFTWARE\DriveUP Pro") : hklm.OpenSubKey(@"SOFTWARE\DriveUP Pro");
+        }
+
+        static void LoadTuning()
+        {
+            try
+            {
+                using (var k = TuningKey(false))
+                {
+                    if (k == null) return;
+                    foreach (string name in k.GetValueNames())
+                    {
+                        string val = Convert.ToString(k.GetValue(name, "", Microsoft.Win32.RegistryValueOptions.DoNotExpandEnvironmentNames));
+                        if (name == "TuneMode") TuneMode = val;
+                        else if (name.StartsWith("Saved.", StringComparison.Ordinal)) TuneSaved[name.Substring(6)] = val;
+                        else if (name.StartsWith("When.", StringComparison.Ordinal)) TuneWhen[name.Substring(5)] = val;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        static bool SaveTuning()
+        {
+            try
+            {
+                using (var k = TuningKey(true))
+                {
+                    foreach (string name in k.GetValueNames())
+                    {
+                        bool keep = name == "TuneMode" ||
+                                    (name.StartsWith("Saved.", StringComparison.Ordinal) && TuneSaved.ContainsKey(name.Substring(6))) ||
+                                    (name.StartsWith("When.", StringComparison.Ordinal) && TuneSaved.ContainsKey(name.Substring(5)));
+                        if (!keep) k.DeleteValue(name, false);
+                    }
+                    k.SetValue("TuneMode", TuneMode, Microsoft.Win32.RegistryValueKind.String);
+                    foreach (var kv in TuneSaved) k.SetValue("Saved." + kv.Key, kv.Value, Microsoft.Win32.RegistryValueKind.String);
+                    foreach (var kv in TuneWhen) if (TuneSaved.ContainsKey(kv.Key)) k.SetValue("When." + kv.Key, kv.Value, Microsoft.Win32.RegistryValueKind.String);
+                }
+                return true;
+            }
+            catch { return false; }
+        }
+#endif
+
+        static bool SaveLocked()
         {
             var sb = new StringBuilder();
             sb.AppendLine("; " + Edition.Name + " settings");
@@ -158,12 +228,6 @@ namespace DriveUp
             sb.AppendLine("CheckOnStart=" + (CheckOnStart ? "1" : "0"));
             sb.AppendLine("LastCheck=" + FormatDate(LastCheck));
             sb.AppendLine("BackupRoot=" + BackupRoot);
-#if PRO
-            sb.AppendLine("TuneMode=" + TuneMode);
-            if (TuneSaved.Count > 0) sb.AppendLine("[Tuning]");
-            foreach (var kv in TuneSaved) sb.AppendLine("Saved." + kv.Key + "=" + OneLine(kv.Value));
-            foreach (var kv in TuneWhen) if (TuneSaved.ContainsKey(kv.Key)) sb.AppendLine("When." + kv.Key + "=" + OneLine(kv.Value));
-#endif
             // Written aside and swapped in: a crash mid-write never leaves a half file (DriveUP Pro
             // keeps the old values of changed settings here).
             string tmp = IniPath + ".tmp";
@@ -172,6 +236,7 @@ namespace DriveUp
                 File.WriteAllText(tmp, sb.ToString(), new UTF8Encoding(false));
                 if (File.Exists(IniPath)) File.Replace(tmp, IniPath, null);
                 else File.Move(tmp, IniPath);
+                return true;
             }
             catch
             {
@@ -179,8 +244,9 @@ namespace DriveUp
                 {
                     File.WriteAllText(IniPath, sb.ToString(), new UTF8Encoding(false));
                     File.Delete(tmp);
+                    return true;
                 }
-                catch { }
+                catch { return false; }
             }
         }
     }

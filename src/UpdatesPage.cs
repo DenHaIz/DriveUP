@@ -401,7 +401,8 @@ namespace DriveUp
                 string err = null;
                 try { found = WinUpdate.Search(); }
                 catch (Exception ex) { err = WinUpdate.ErrorText(ex); }
-                vt.Join(35000);
+                // A little longer than the vendor check's own limit (40 s): its partial results still arrive.
+                vt.Join(46000);
                 RunUI(() => CheckDone(found, err, vendors ?? new List<VendorUpdate>(), pc));
             }) { IsBackground = true };
             th.SetApartmentState(ApartmentState.MTA);
@@ -617,6 +618,18 @@ namespace DriveUp
                 {
                     rpNote = SysRestore.Create("DriveUP: " + L.T("обновление драйверов", "driver update"), out rpOk);
                     Post(() => ring.SetProgress(0.04f));
+                    if (!rpOk && !SysRestore.ContinueWithout(AskUI, Host.Window, rpNote))
+                    {
+                        var cancelled = new UpdateResult { Error = L.T("отменено: нет точки восстановления", "cancelled: no restore point") };
+                        foreach (var u in updates)
+                        {
+                            u.Failed = true;
+                            u.Status = L.T("Не установлено: нет точки восстановления", "Not installed: no restore point");
+                            cancelled.Failed.Add(u);
+                        }
+                        RunUI(() => InstallDone(updates, cancelled, rpOk, rpNote, wantPoint));
+                        return;
+                    }
                 }
                 UpdateResult result;
                 try
@@ -680,6 +693,18 @@ namespace DriveUp
             else if (result.Failed.Count > 0)
                 Journal.Add(JournalKind.Update, 0, result.Failed.Count, result.Error ?? string.Join(", ", result.Failed.Select(u => u.DisplayName)));
             Inventory.UpdatesInstalled(result.Installed);
+            if (result.Installed.Count > 0)
+            {
+                // Versions changed: read the devices again (the Devices tab and vendor rows follow).
+                var th = new Thread(() =>
+                {
+                    Dictionary<string, Bitmap> icons;
+                    var devs = Inventory.LoadDevices(out icons);
+                    Post(() => Inventory.SetDevices(devs, icons));
+                }) { IsBackground = true };
+                th.SetApartmentState(ApartmentState.STA);
+                th.Start();
+            }
 
             // Installed rows leave the list; failed ones stay with a warning dot and the reason.
             var installed = new HashSet<DriverUpdate>(result.Installed);

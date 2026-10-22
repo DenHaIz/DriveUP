@@ -32,6 +32,8 @@ namespace DriveUp
         int titleWidth;
         string[] themeTexts = { "", "" };
         bool compactTheme, instantTab;
+        /// <summary>Closing was asked for while Windows Update installed: the window closes once it has stopped.</summary>
+        bool closing;
         public int StartTab;
         public string[] StartPaths;
 
@@ -266,6 +268,33 @@ namespace DriveUp
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (e.CloseReason == CloseReason.UserClosing && OperationRunning && updatesPage.Installing && !installPage.Installing && !backupPage.Working
+#if PRO
+                && !tunePage.Working
+#endif
+                )
+            {
+                // Windows Update can be asked to stop (e.g. when it hangs): then the window closes by itself.
+                e.Cancel = true;
+                if (closing) return;
+                if (ThemedDialog.Confirm(this, L.T("Прервать установку?", "Stop the install?"),
+                        L.T("Windows Update ещё скачивает или устанавливает драйверы. Прервать и закрыть окно?\nДрайвер, который ставится прямо сейчас, Windows доустановит или откатит сама.",
+                            "Windows Update is still downloading or installing drivers. Stop and close the window?\nThe driver being installed right now is finished or rolled back by Windows."),
+                        L.T("Прервать и закрыть", "Stop and close"), "\uE711", true))
+                {
+                    closing = true;
+                    WinUpdate.RequestAbort();
+                    ShowToast(L.T("Останавливаю Windows Update…", "Stopping Windows Update…"), ToastKind.Info);
+                    Anim.Frame(this, () =>
+                    {
+                        if (IsDisposed) return false;
+                        if (OperationRunning) return true;
+                        BeginInvoke((MethodInvoker)Close);
+                        return false;
+                    });
+                }
+                return;
+            }
             if (e.CloseReason == CloseReason.UserClosing && OperationRunning)
             {
                 // Installs and removals run inside DriveUP: closing now would cut them off half-way.

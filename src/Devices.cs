@@ -196,11 +196,14 @@ namespace DriveUp
             try
             {
                 var data = new SP_DEVINFO_DATA { cbSize = Marshal.SizeOf(typeof(SP_DEVINFO_DATA)) };
-                for (int i = 0; SetupDiEnumDeviceInfo(set, i, ref data); i++)
+                int i = 0;
+                for (; SetupDiEnumDeviceInfo(set, i, ref data); i++)
                 {
                     string inf = PropString(set, ref data, ref DriverInfPath);
                     if (inf.Length > 0) used.Add(inf);
                 }
+                int err = Marshal.GetLastWin32Error();
+                if (err != 259 /* ERROR_NO_MORE_ITEMS */) throw new System.ComponentModel.Win32Exception(err);
             }
             finally { SetupDiDestroyDeviceInfoList(set); }
             return used;
