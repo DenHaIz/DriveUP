@@ -14,6 +14,15 @@ namespace DriveUp
     class Machine
     {
         public bool Laptop, OnBattery, Server;
+        /// <summary>Modern Standby (S0 low power idle): Windows supports only the Balanced plan there.</summary>
+        public bool ModernStandby;
+        /// <summary>
+        /// Run by an organisation: domain, Entra ID (Azure AD) join or MDM (Intune) enrolment. Their
+        /// management and reporting rely on the push routing service, telemetry and its tasks.
+        /// </summary>
+        public bool Managed;
+        /// <summary>Windows Hello Enhanced Sign-in Security: face / fingerprint sign-in relies on virtualization-based security.</summary>
+        public bool SecureBiometrics;
         public int Build;
         public readonly List<string> Gpus = new List<string>();
         /// <summary>A discrete graphics card (NVIDIA, AMD Radeon RX / Pro, Intel Arc A/B), or empty.</summary>
@@ -29,6 +38,11 @@ namespace DriveUp
         public bool AnyHdd;
 
         public bool Windows11 { get { return Build >= 22000; } }
+        /// <summary>
+        /// Laptops and Modern Standby machines keep the Balanced plan and get the power mode of the
+        /// Settings app instead of the classic plans, and their battery side is never changed.
+        /// </summary>
+        public bool Mobile { get { return Laptop || ModernStandby; } }
         public bool SystemSsd { get { return SystemDisk == "NVMe" || SystemDisk == "SSD"; } }
 
         /// <summary>"Laptop · Intel Core i7-12700H, 14 cores · 16 GB · NVMe SSD · RTX 3060 · Windows 11".</summary>
@@ -42,6 +56,7 @@ namespace DriveUp
             string gpu = GamingGpu.Length > 0 ? GamingGpu : (Gpus.Count > 0 ? Gpus[0] : "");
             if (gpu.Length > 0) parts.Add(Regex.Replace(gpu, @"\((R|TM)\)|NVIDIA\s+|AMD\s+|Intel\s+", "", RegexOptions.IgnoreCase).Trim());
             parts.Add((Server ? "Windows Server" : "Windows " + (Windows11 ? "11" : "10")));
+            if (Managed) parts.Add(L.T("управляется организацией", "managed by an organisation"));
             return string.Join(" · ", parts);
         }
 
@@ -90,7 +105,34 @@ namespace DriveUp
                 m.RamGb = Convert.ToUInt64(o["TotalPhysicalMemory"]) / (1024.0 * 1024 * 1024)));
             Try(() => ReadDisks(m));
             Gpu.ReadScheduling(out m.HagsSupported, out m.HagsEnabled);
+            m.ModernStandby = PowerApi.ModernStandby();
+            Try(() => Query("SELECT PartOfDomain FROM Win32_ComputerSystem", o => { if (Convert.ToBoolean(o["PartOfDomain"])) m.Managed = true; }));
+            Try(() => { if (Enrolled()) m.Managed = true; });
+            Try(() =>
+            {
+                using (var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\SecureBiometrics"))
+                    m.SecureBiometrics = k != null && Convert.ToInt32(k.GetValue("Enabled", 0)) == 1;
+            });
             return m;
+        }
+
+        /// <summary>Joined to Entra ID, or enrolled in MDM with a work account.</summary>
+        static bool Enrolled()
+        {
+            using (var j = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\CloudDomainJoin\JoinInfo"))
+                if (j != null && j.SubKeyCount > 0) return true;
+            using (var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Enrollments"))
+            {
+                if (k == null) return false;
+                foreach (string n in k.GetSubKeyNames())
+                    using (var e = k.OpenSubKey(n))
+                    {
+                        if (e == null) continue;
+                        string provider = Convert.ToString(e.GetValue("ProviderID")), upn = Convert.ToString(e.GetValue("UPN"));
+                        if (provider.Length > 0 && upn.Length > 0) return true;
+                    }
+            }
+            return false;
         }
 
         /// <summary>System drive type from the Storage WMI provider (Windows 8+): media type, NVMe by bus.</summary>
@@ -511,6 +553,19 @@ namespace DriveUp
         [DllImport("powrprof.dll")] static extern uint PowerGetActualOverlayScheme(out Guid overlay);
         [DllImport("powrprof.dll")] static extern uint PowerSetActiveOverlayScheme(Guid overlay);
         [DllImport("kernel32.dll")] static extern IntPtr LocalFree(IntPtr mem);
+        [DllImport("powrprof.dll")] static extern bool GetPwrCapabilities(byte[] caps);
+
+        /// <summary>SYSTEM_POWER_CAPABILITIES.AoAc (byte 20): the machine uses Modern Standby.</summary>
+        public static bool ModernStandby()
+        {
+            if (Fake) return Reg.Dword(false, "Power", "AoAc") == 1;
+            try
+            {
+                var caps = new byte[256];
+                return GetPwrCapabilities(caps) && caps[20] != 0;
+            }
+            catch { return false; }
+        }
 
         public static readonly Guid Balanced = new Guid("381b4222-f694-41f0-9685-ff5bb260df2e");
         public static readonly Guid HighPerformance = new Guid("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635b");
@@ -665,7 +720,11 @@ namespace DriveUp
         public override void Set(string value)
         {
             Guid plan = value == "perf" ? PowerApi.HighPerformance : (value == "saver" ? PowerApi.PowerSaver : PowerApi.Balanced);
-            if (plan != PowerApi.Balanced && PowerApi.Exists(plan))
+            // Laptops and Modern Standby: never a classic plan (hidden or unsupported there, and the
+            // maker's power software expects Balanced), only the power mode of the Settings app.
+            bool standby = Tuner.Pc != null ? Tuner.Pc.ModernStandby : PowerApi.ModernStandby();
+            bool mobile = Tuner.Pc == null || Tuner.Pc.Mobile;
+            if (plan != PowerApi.Balanced && !standby && (!mobile || !PowerApi.HasOverlay) && PowerApi.Exists(plan))
             {
                 PowerApi.Activate(plan);
                 return;

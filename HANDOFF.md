@@ -1,6 +1,6 @@
 # DriveUP — handoff
 
-Состояние на 21.10.2026, версия **1.1.0** (в работе; опубликован релиз v1.0.0). Репозиторий: https://github.com/DenHaIz/DriveUP.
+Состояние на 22.10.2026, версия **1.1.1** (опубликованы v1.0.0 и v1.1.0; 1.1.1 — исправление «Тишины» на ноутбуках). Репозиторий: https://github.com/DenHaIz/DriveUP.
 
 Две редакции из одних исходников: **DriveUP** (драйверы) и **DriveUP Pro** (то же + вкладка «Оптимизация»,
 бордово-красное оформление). Pro описана в разделе «DriveUP Pro» ниже.
@@ -79,7 +79,7 @@
 | группа | что | как | Игры / Работа / Тишина |
 |---|---|---|---|
 | питание | схема: High performance / Power saver, где их нет — overlay Best performance / Best power efficiency | `PowerSetActiveScheme`, `PowerSetActiveOverlayScheme` | perf / balanced / saver |
-| питание | `PowerSetting` в активной схеме, значение «AC,DC», `*` = не трогать сторону (ноутбук в «Играх» — только от сети): турбо-буст PERFBOOSTMODE, мин. частота PROCTHROTTLEMIN, парковка ядер CPMINCORES, EPP, PCIe ASPM, USB selective suspend, остановка диска (только если есть HDD) | `PowerWriteAC/DCValueIndex` + повторный `Activate` | Игры: буст 2, мин. 100 %, ядра 100 %, EPP 0, ASPM 0, USB 0; Работа: буст 2; Тишина: буст 0, EPP 50–80, ASPM 2, USB 1 |
+| питание | `PowerSetting` в активной схеме, значение «AC,DC», `*` = не трогать сторону (ноутбуки и Modern Standby — всегда только от сети): турбо-буст PERFBOOSTMODE, мин. частота PROCTHROTTLEMIN, парковка ядер CPMINCORES, EPP, PCIe ASPM, USB selective suspend, остановка диска (только если есть HDD) | `PowerWriteAC/DCValueIndex` + повторный `Activate` | Игры: буст 2, мин. 100 %, ядра 100 %, EPP 0, ASPM 0, USB 0; Работа: буст 2; Тишина: буст 0, EPP 60 (без ASPM и USB) |
 | игры | игровой режим, фоновая запись Game Bar, HAGS (только если драйвер поддерживает, `D3DKMTQueryAdapterInfo`), оптимизация оконных игр (Win11), ускорение мыши | HKCU/HKLM, `SPI_SETMOUSE` | Игры (запись выкл. во всех) |
 | интерфейс | анимации окон/меню/панели задач; прозрачность | `SPI_SETCLIENTAREAANIMATION`, `SPI_SETANIMATION`, `TaskbarAnimations`; `EnableTransparency` + `WM_SETTINGCHANGE ImmersiveColorSet` | Игры; прозрачность и в Тишине |
 | службы | DiagTrack, dmwappushservice → отключена; MapsBroker → по требованию; NvTelemetryContainer (если есть); TrkWks (не в «Работе» — домен); SysMain — только на SSD и ≥ 16 ГБ (он же сжатие памяти); WSearch — по желанию | SCM `ChangeServiceConfig(2)`, остановка/запуск; старое состояние «Start\|Delayed\|работала» | общие + по устройству |
@@ -88,6 +88,22 @@
 | реклама | автоустановка/советы (ContentDeliveryManager, 9 значений), рекламный ID, Bing в «Пуске» (HKCU policy, после перезапуска) | HKCU | все режимы |
 | система | быстрый запуск (`HiberbootEnabled`, если гибернация есть); целостность памяти — только по желанию, «слабее защита», не если политика/`Locked` | HKLM | Игры, Работа |
 | обновления | время без перезагрузок 8–20 | HKLM `WindowsUpdate\UX\Settings` | Работа |
+
+**Ноутбуки, Modern Standby, рабочие ПК (с 1.1.1).** Жалоба на 1.1.0: после «Тишины» ноутбук висел ~30 мин на
+«Перезагрузка…», а от батареи при запуске была ошибка батареи. Причина точно не установлена (здесь нет ноутбука),
+вероятные: классическая схема «Экономия энергии» на ноутбуке, принудительное «максимальное» энергосбережение
+PCIe (ASPM) от сети (известные зависания NVMe/Wi-Fi), USB selective suspend и изменение стороны «от батареи»
+(буст, EPP). Теперь:
+- `Machine.Mobile` = ноутбук или Modern Standby (`GetPwrCapabilities`, байт 20 AoAc). Для них схема питания —
+  только «Сбалансированная» + режим питания (overlay), классические схемы не включаются никогда (на AoAc — даже
+  без overlay); все `PowerSetting` — только сторона «от сети» (`x,*`), батарея остаётся Windows и производителю.
+- «Тишина» больше не трогает PCIe ASPM и USB suspend ни на каких ПК (Windows и так экономит от батареи).
+- «Игры» от батареи: схема питания — только по желанию; HAGS на ноутбуках (две видеокарты) — только по желанию.
+- `Machine.Managed` (домен `PartOfDomain`, Entra ID `CloudDomainJoin\JoinInfo`, MDM `Enrollments` с UPN): не
+  предлагаются DiagTrack, dmwappushservice (через неё приходят команды Intune), задачи телеметрии, TrkWks,
+  целостность памяти. `Machine.SecureBiometrics` (Windows Hello ESS) — целостность памяти не предлагается.
+- Перед «Применить» — точка восстановления (если включена настройка «Точка восстановления перед установкой»).
+- Аварийный возврат: `DriveUP_Pro.exe /restore` — возвращает всё изменённое без окна, итог в окне сообщения и в журнале.
 
 Смена режима: всё, что менял прежний режим, а новому не нужно, попадает строкой «вернётся» (например,
 «Работа» возвращает минимальную частоту и парковку ядер, выставленные «Играми»).

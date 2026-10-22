@@ -384,6 +384,15 @@ namespace DriveUp
                 int done = 0, failed = 0;
                 bool reboot = false;
                 var names = new List<string>();
+                // A System Restore point first: if Windows misbehaves after the changes, it can be rolled back
+                // even from the recovery screen. Without one (Server, protection off) nothing stops.
+                if (Settings.RestorePoint && todo.Any(r => r.Kind == TuneKind.Change))
+                {
+                    Post(() => info.SetText(L.T("Создаю точку восстановления…", "Creating a restore point…")));
+                    bool ok;
+                    string why = SysRestore.Create("DriveUP Pro: " + mode.Name(), out ok);
+                    if (!ok && why != null) Post(() => Host.ShowToast(L.T("Точка восстановления не создана: ", "No restore point: ") + why, ToastKind.Info));
+                }
                 foreach (var row in Tuner.Order(todo))
                 {
                     var r = row;
