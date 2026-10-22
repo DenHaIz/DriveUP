@@ -542,7 +542,13 @@ namespace DriveUp
             if (r.Tweak.NeedsReboot && r.Kind != TuneKind.Same && px < textR - S(80))
                 px += Pill.Draw(g, L.T("после перезагрузки", "after a restart"), px, pcy, p.Warning, rowBg, ink) + S(6);
             if (r.Kind == TuneKind.Return && px < textR - S(60))
-                Pill.Draw(g, L.T("вернётся", "goes back"), px, pcy, p.Accent, rowBg, ink);
+                px += Pill.Draw(g, L.T("вернётся", "goes back"), px, pcy, p.Accent, rowBg, ink) + S(6);
+            if (r.Procs > 0 && r.Kind != TuneKind.Changed)
+            {
+                string run = L.T("в фоне: ", "running: ") + L.Count(r.Procs, "процесс", "процесса", "процессов", "process", "processes") +
+                             (r.ProcMemory > 0 ? " · " + L.Size(r.ProcMemory) : "");
+                if (px + Pill.Width(run) < textR) Pill.Draw(g, run, px, pcy, p.TextDim, rowBg, ink);
+            }
 
             // Values: now → new (or was → now).
             var vr = new Rectangle(x, (int)y + S(32), textR - x, S(20));

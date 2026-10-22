@@ -218,6 +218,10 @@ namespace DriveUp
             if (change > 0) parts.Add(L.T("изменится: ", "changes: ") + change);
             if (back > 0) parts.Add(L.T("вернётся: ", "goes back: ") + back);
             if (reboot > 0) parts.Add(L.T("после перезагрузки: ", "after a restart: ") + reboot);
+            var stopping = rows.Where(r => r.Actionable && r.Checked && r.Procs > 0).ToList();
+            if (stopping.Count > 0)
+                parts.Add(L.T("уйдёт из фона: ", "leaves the background: ") + L.Count(stopping.Sum(r => r.Procs), "процесс", "процесса", "процессов", "process", "processes") +
+                          " · " + L.Size(stopping.Sum(r => r.ProcMemory)));
             if (parts.Count == 0 && same > 0) parts.Add(L.T("всё уже настроено так", "everything is already set like this"));
             else if (same > 0) parts.Add(L.T("уже так: ", "already set: ") + same);
             info.SetText(string.Join(" · ", parts));
@@ -377,6 +381,15 @@ namespace DriveUp
             var todo = list.Rows.Where(r => r.Actionable && r.Checked && r.State == TuneState.Idle).ToList();
             if (todo.Count == 0) return;
             if (!Host.CanStartOperation()) return;
+            // Settings with a catch go only with the user's explicit yes, each one named with what it costs.
+            var risky = todo.Where(r => r.Kind == TuneKind.Change && r.Risky).ToList();
+            if (risky.Count > 0 && !ThemedDialog.Confirm(Host.Window, L.T("Подтвердите рискованные пункты", "Confirm the risky settings"),
+                    L.T("Вы отметили пункты, у которых есть последствия:", "You ticked settings that have a catch:") + "\n\n" +
+                    string.Join("\n", risky.Select(r => "• " + r.Tweak.Name() + " — " + r.Warn())) + "\n\n" +
+                    L.T("Каждый можно вернуть во вкладке «Изменено». Применить их вместе с остальными?",
+                        "Each can be returned under Changed. Apply them along with the rest?"),
+                    L.T("Применить", "Apply"), "\uE73E", true))
+                return;
             var mode = selected;
             SetWorking(true);
             new Thread(() =>

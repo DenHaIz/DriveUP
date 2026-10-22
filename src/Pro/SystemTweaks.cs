@@ -332,11 +332,12 @@ namespace DriveUp
         public int Level;
         public Regex Match;
         public Func<string> Reason, Warn;
+        public string[] Processes = new string[0];
     }
 
     class StartupFound
     {
-        public StartupTweak Tweak;
+        public Tweak Tweak;
         public StartupRule Rule;
     }
 
@@ -345,34 +346,37 @@ namespace DriveUp
         const string Cv = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string Cv32 = @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run";
 
-        static StartupRule R(int level, string pattern, Func<string> reason, Func<string> warn = null)
+        static StartupRule R(int level, string pattern, Func<string> reason, Func<string> warn = null, params string[] processes)
         {
-            return new StartupRule { Level = level, Match = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), Reason = reason, Warn = warn };
+            return new StartupRule { Level = level, Match = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant), Reason = reason, Warn = warn, Processes = processes };
         }
 
         /// <summary>Only programs on this list are ever offered: drivers, security and Windows itself never are.</summary>
         public static readonly List<StartupRule> Rules = new List<StartupRule>
         {
             R(1, @"MicrosoftEdgeAutoLaunch", () => L.T("Edge запускается заранее и ждёт в фоне", "Edge starts in advance and waits in the background")),
-            R(1, @"Browser\s?Assistant|browser_assistant\.exe", () => L.T("Помощник Opera: фоновый процесс и реклама", "Opera assistant: a background process and ads")),
-            R(1, @"AdobeGCInvoker|AGCInvokerUtility", () => L.T("Проверка лицензии Adobe при каждом входе", "Adobe licence check at every sign-in")),
-            R(1, @"iTunesHelper", () => L.T("Нужен только для автосинхронизации iPhone", "Only needed to auto-sync an iPhone")),
-            R(1, @"CCleaner.*(monitor|smart|tray)", () => L.T("Мониторинг CCleaner висит в фоне", "CCleaner monitoring sits in the background")),
-            R(1, @"YandexBrowserAutoLaunch|browser_manager|BrowserManager", () => L.T("Фоновый менеджер браузера", "Background browser manager")),
-            R(1, @"Mail\.?Ru|Amigo", () => L.T("Фоновые сервисы Mail.ru", "Mail.ru background services")),
-            R(1, @"\bSkype\b", () => L.T("Skype закрыт Microsoft в 2025 году", "Microsoft shut Skype down in 2025")),
-            R(1, @"Wondershare.*Helper|WSHelper", () => L.T("Фоновый помощник Wondershare", "Wondershare background helper")),
-            R(1, @"jusched|Java Update", () => L.T("Проверяет обновления Java и держит процесс", "Checks for Java updates and keeps a process")),
+            R(1, @"Browser\s?Assistant|browser_assistant\.exe", () => L.T("Помощник Opera: фоновый процесс и реклама", "Opera assistant: a background process and ads"), null, "browser_assistant"),
+            R(1, @"AdobeGCInvoker|AGCInvokerUtility", () => L.T("Проверка лицензии Adobe при каждом входе", "Adobe licence check at every sign-in"), null, "AGCInvokerUtility", "AdobeGCClient"),
+            R(1, @"iTunesHelper", () => L.T("Нужен только для автосинхронизации iPhone", "Only needed to auto-sync an iPhone"), null, "iTunesHelper"),
+            R(1, @"CCleaner.*(monitor|smart|tray)", () => L.T("Мониторинг CCleaner висит в фоне", "CCleaner monitoring sits in the background"), null, "CCleaner64", "CCleaner"),
+            R(1, @"YandexBrowserAutoLaunch|browser_manager|BrowserManager", () => L.T("Фоновый менеджер браузера", "Background browser manager"), null, "browser_manager"),
+            R(1, @"Mail\.?Ru|Amigo", () => L.T("Фоновые сервисы Mail.ru", "Mail.ru background services"), null, "MailRuUpdater"),
+            R(1, @"\bSkype\b", () => L.T("Skype закрыт Microsoft в 2025 году", "Microsoft shut Skype down in 2025"), null, "Skype"),
+            R(1, @"Wondershare.*Helper|WSHelper", () => L.T("Фоновый помощник Wondershare", "Wondershare background helper"), null, "WSHelper", "Wondershare Helper Compact"),
+            R(1, @"jusched|Java Update", () => L.T("Проверяет обновления Java и держит процесс", "Checks for Java updates and keeps a process"), null, "jusched"),
             R(1, @"AvastBrowser|AVG Secure Browser|CCleaner Browser", () => L.T("Браузер-«нагрузка» от антивируса", "Bundled browser from an antivirus")),
-            R(2, @"\bsteam(\.exe)?\b", () => L.T("Steam можно открыть перед игрой", "Open Steam before you play")),
-            R(2, @"discord", () => L.T("Тяжёлый мессенджер — запускайте, когда нужен", "A heavy messenger — start it when you need it")),
-            R(2, @"spotify", () => L.T("Запускается и висит в фоне", "Starts and sits in the background")),
-            R(2, @"EpicGamesLauncher|EADesktop|EADM|\bOrigin\b|Battle\.net|UbisoftConnect|upc\.exe|GalaxyClient|RiotClient", () => L.T("Лаунчер игр можно открыть перед игрой", "Open the game launcher before you play")),
-            R(2, @"telegram|viber|whatsapp|\bzoom\b|slack|com\.squirrel\.Teams|\bTeams\b", () => L.T("Мессенджер можно запускать вручную", "Start the messenger by hand")),
-            R(2, @"utorrent|bittorrent|qbittorrent", () => L.T("Торрент-клиент раздаёт в фоне и занимает сеть", "The torrent client seeds in the background and takes bandwidth")),
-            R(2, @"Creative Cloud|CCXProcess|AdobeAAMUpdater", () => L.T("Фоновые процессы Adobe Creative Cloud", "Adobe Creative Cloud background processes")),
+            R(2, @"\bsteam(\.exe)?\b", () => L.T("Steam можно открыть перед игрой", "Open Steam before you play"), null, "steam", "steamwebhelper"),
+            R(2, @"discord", () => L.T("Тяжёлый мессенджер — запускайте, когда нужен", "A heavy messenger — start it when you need it"), null, "Discord"),
+            R(2, @"spotify", () => L.T("Запускается и висит в фоне", "Starts and sits in the background"), null, "Spotify"),
+            R(2, @"EpicGamesLauncher|EADesktop|EADM|\bOrigin\b|Battle\.net|UbisoftConnect|upc\.exe|GalaxyClient|RiotClient", () => L.T("Лаунчер игр можно открыть перед игрой", "Open the game launcher before you play"), null,
+                "EpicGamesLauncher", "EpicWebHelper", "EADesktop", "Origin", "Battle.net", "upc", "GalaxyClient", "RiotClientServices"),
+            R(2, @"telegram|viber|whatsapp|\bzoom\b|slack|com\.squirrel\.Teams|MSTeams|\bTeams\b", () => L.T("Мессенджер можно запускать вручную", "Start the messenger by hand"), null,
+                "Telegram", "Viber", "WhatsApp", "Zoom", "slack", "ms-teams", "Teams"),
+            R(2, @"utorrent|bittorrent|qbittorrent", () => L.T("Торрент-клиент раздаёт в фоне и занимает сеть", "The torrent client seeds in the background and takes bandwidth"), null, "uTorrent", "BitTorrent", "qbittorrent"),
+            R(2, @"Creative Cloud|CCXProcess|AdobeAAMUpdater", () => L.T("Фоновые процессы Adobe Creative Cloud", "Adobe Creative Cloud background processes"), null,
+                "Creative Cloud", "CCXProcess", "AdobeIPCBroker", "CoreSync", "Adobe Desktop Service"),
             R(3, @"OneDrive|GoogleDriveFS|Dropbox|Yandex\.?Disk", () => L.T("Облачный диск: файлы перестанут синхронизироваться, пока его не запустить", "Cloud drive: files stop syncing until you start it"),
-                () => L.T("файлы не синхронизируются", "files stop syncing")),
+                () => L.T("файлы не синхронизируются", "files stop syncing"), "OneDrive", "GoogleDriveFS", "Dropbox", "YandexDisk2"),
         };
 
         /// <summary>Startup programs on the list, as they are now.</summary>
@@ -383,8 +387,18 @@ namespace DriveUp
             {
                 string text = entry + " " + command;
                 var rule = Rules.FirstOrDefault(r => r.Match.IsMatch(text));
-                if (rule != null) found.Add(new StartupFound { Tweak = new StartupTweak(machine, sub, entry), Rule = rule });
+                if (rule == null) return;
+                var t = new StartupTweak(machine, sub, entry) { Processes = rule.Processes };
+                found.Add(new StartupFound { Tweak = t, Rule = rule });
             };
+            // Store apps start through their own startup tasks (new Teams, Spotify, WhatsApp, Telegram from the Store).
+            foreach (string family in Reg.SubKeyNames(false, PackagedStartupTweak.Root))
+                foreach (string task in Reg.SubKeyNames(false, PackagedStartupTweak.Root + "\\" + family))
+                {
+                    if (Reg.Get(false, PackagedStartupTweak.Root + "\\" + family + "\\" + task, "State") == null) continue;
+                    var rule = Rules.FirstOrDefault(r => r.Match.IsMatch(family + " " + task));
+                    if (rule != null) found.Add(new StartupFound { Tweak = new PackagedStartupTweak(family, task) { Processes = rule.Processes }, Rule = rule });
+                }
             foreach (var key in new[] { Tuple.Create(false, Cv, "Run"), Tuple.Create(true, Cv, "Run"), Tuple.Create(true, Cv32, "Run32") })
                 foreach (string name in Reg.ValueNames(key.Item1, key.Item2))
                     if (name.Length > 0) add(key.Item1, key.Item3, name, Convert.ToString(Reg.Get(key.Item1, key.Item2, name)));
@@ -405,6 +419,113 @@ namespace DriveUp
                     catch { }
                 }
             return found;
+        }
+    }
+
+    /// <summary>A Store app's startup task (as Task Manager turns it off: State 1 = off by the user, 2 = on).</summary>
+    class PackagedStartupTweak : Tweak
+    {
+        public const string Root = @"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\SystemAppData";
+        public readonly string Family, Task;
+
+        public PackagedStartupTweak(string family, string task)
+        {
+            Family = family;
+            Task = task;
+            Id = "pkg." + Convert.ToBase64String(Encoding.UTF8.GetBytes(family + "|" + task)).Replace('=', '_').Replace('+', '-').Replace('/', '~');
+            Category = TuneCat.Startup;
+            Glyph = "\uE7B5";
+            // "SpotifyAB.SpotifyMusic_zpdnekdrzrea0" → "SpotifyMusic", "MSTeams_8wekyb3d8bbwe" → "MSTeams".
+            string name = family.Split('_')[0];
+            int dot = name.LastIndexOf('.');
+            if (dot >= 0 && dot < name.Length - 1) name = name.Substring(dot + 1);
+            Name = () => name + L.T(" (из Microsoft Store)", " (Microsoft Store)");
+        }
+
+        public static PackagedStartupTweak FromId(string id)
+        {
+            if (!id.StartsWith("pkg.")) return null;
+            try
+            {
+                var p = Encoding.UTF8.GetString(Convert.FromBase64String(id.Substring(4).Replace('_', '=').Replace('-', '+').Replace('~', '/'))).Split('|');
+                return p.Length == 2 ? new PackagedStartupTweak(p[0], p[1]) : null;
+            }
+            catch { return null; }
+        }
+
+        string Path { get { return Root + "\\" + Family + "\\" + Task; } }
+
+        public override string Capture() { return Reg.Capture(false, Path, "State"); }
+        public override void Restore(string raw) { Reg.Restore(false, Path, "State", raw); }
+
+        public override string ValueOf(string raw)
+        {
+            int? v = Reg.RawDword(raw);
+            return v == 2 || v == 4 ? "1" : "0";
+        }
+
+        public override void Set(string value) { Reg.SetDword(false, Path, "State", value == "1" ? 2 : 1); }
+        public override string Describe(string value) { return value == "1" ? L.T("запускается с Windows", "starts with Windows") : L.T("не запускается", "does not start"); }
+    }
+
+    /// <summary>
+    /// Whether a Store app may run in the background (Settings → Apps → background permission).
+    /// Off, it runs only while it is open.
+    /// </summary>
+    class BackgroundApp : Tweak
+    {
+        const string Key = @"Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications\";
+        const string Families = @"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Families\";
+        public readonly string Family;
+
+        public BackgroundApp(string family)
+        {
+            Family = family;
+            Id = "bg." + family;
+            Category = TuneCat.Background;
+            Glyph = "\uE71D";
+        }
+
+        public override bool Available(Machine m) { return Reg.KeyExists(false, Families + Family); }
+
+        public override string Capture() { return Reg.Capture(false, Key + Family, "Disabled") + "|" + Reg.Capture(false, Key + Family, "DisabledByUser"); }
+
+        public override void Restore(string raw)
+        {
+            var p = raw.Split('|');
+            if (p.Length != 2) return;
+            Reg.Restore(false, Key + Family, "Disabled", p[0]);
+            Reg.Restore(false, Key + Family, "DisabledByUser", p[1]);
+        }
+
+        public override string ValueOf(string raw) { return raw.StartsWith("d:1|") ? "0" : "1"; }
+
+        public override void Set(string value)
+        {
+            int v = value == "1" ? 0 : 1;
+            Reg.SetDword(false, Key + Family, "Disabled", v);
+            Reg.SetDword(false, Key + Family, "DisabledByUser", v);
+        }
+
+        public override string Describe(string value) { return value == "1" ? L.T("работает в фоне", "runs in the background") : L.T("только когда открыто", "only while open"); }
+    }
+
+    /// <summary>What runs now: process count and memory by process name, read once per plan.</summary>
+    static class Running
+    {
+        public static Dictionary<string, Tuple<int, long>> Snapshot()
+        {
+            var map = new Dictionary<string, Tuple<int, long>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in System.Diagnostics.Process.GetProcesses())
+                using (p)
+                {
+                    long mem = 0;
+                    try { mem = p.WorkingSet64; } catch { }
+                    Tuple<int, long> was;
+                    map.TryGetValue(p.ProcessName, out was);
+                    map[p.ProcessName] = Tuple.Create((was != null ? was.Item1 : 0) + 1, (was != null ? was.Item2 : 0) + mem);
+                }
+            return map;
         }
     }
 

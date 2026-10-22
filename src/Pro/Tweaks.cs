@@ -224,6 +224,17 @@ namespace DriveUp
                 return k == null ? null : k.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
         }
 
+        public static bool KeyExists(bool machine, string path)
+        {
+            using (var k = Key(machine, path, false, false)) return k != null;
+        }
+
+        public static string[] SubKeyNames(bool machine, string path)
+        {
+            using (var k = Key(machine, path, false, false))
+                return k == null ? new string[0] : k.GetSubKeyNames();
+        }
+
         public static string[] ValueNames(bool machine, string path)
         {
             using (var k = Key(machine, path, false, false))
@@ -293,7 +304,7 @@ namespace DriveUp
     }
 
     /// <summary>Groups in the list, in the order they are shown and applied.</summary>
-    enum TuneCat { Power, Gaming, Interface, Services, Tasks, Startup, Privacy, System, Updates }
+    enum TuneCat { Power, Gaming, Interface, Services, Background, Tasks, Startup, Privacy, System, Updates }
 
     /// <summary>
     /// One system setting DriveUP Pro can change and put back exactly as it was. Values are short
@@ -307,6 +318,8 @@ namespace DriveUp
         public Func<string> Name, Hint;
         /// <summary>Takes effect after a restart.</summary>
         public bool NeedsReboot;
+        /// <summary>Process names (without .exe) this setting keeps from running in the background, to show what runs now.</summary>
+        public string[] Processes = new string[0];
 
         public abstract string Capture();
         public abstract void Restore(string raw);
@@ -415,12 +428,19 @@ namespace DriveUp
     }
 
     /// <summary>
-    /// Windows 11 "Optimizations for windowed games": one key=value pair inside the DirectX user
-    /// settings string, the other pairs are kept.
+    /// One key=value pair inside the DirectX user settings string (Windows graphics settings:
+    /// "Optimizations for windowed games", "Variable refresh rate"); the other pairs are kept.
     /// </summary>
     class WindowedGames : Tweak
     {
-        const string Path = @"Software\Microsoft\DirectX\UserGpuPreferences", Value = "DirectXUserGlobalSettings", Pair = "SwapEffectUpgradeEnable";
+        const string Path = @"Software\Microsoft\DirectX\UserGpuPreferences", Value = "DirectXUserGlobalSettings";
+        readonly string Pair;
+        public Func<Machine, bool> When = m => m.Windows11;
+
+        public WindowedGames(string pair = "SwapEffectUpgradeEnable")
+        {
+            Pair = pair;
+        }
 
         public override string Capture() { return Reg.Capture(false, Path, Value); }
         public override void Restore(string raw) { Reg.Restore(false, Path, Value, raw); }
@@ -450,7 +470,72 @@ namespace DriveUp
         }
 
         public override string Describe(string value) { return value == "1" ? L.T("включены", "on") : L.T("выключены", "off"); }
-        public override bool Available(Machine m) { return m.Windows11; }
+        public override bool Available(Machine m) { return When(m); }
+    }
+
+    /// <summary>How long a submenu waits before it opens (ms, default 400).</summary>
+    class MenuDelay : Tweak
+    {
+        [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(int action, int param, ref int value, int winIni);
+        [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(int action, int param, IntPtr value, int winIni);
+
+        public override string Capture()
+        {
+            if (Reg.TestRoot != null) return Convert.ToString(Reg.Get(false, "Menu", "Delay") ?? "400");
+            int v = 400;
+            SystemParametersInfo(0x006A /* SPI_GETMENUSHOWDELAY */, 0, ref v, 0);
+            return v.ToString(CultureInfo.InvariantCulture);
+        }
+
+        public override void Restore(string raw) { Set(raw); }
+        public override string ValueOf(string raw) { return raw; }
+
+        public override void Set(string value)
+        {
+            int v;
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return;
+            if (Reg.TestRoot != null) { Reg.SetString(false, "Menu", "Delay", value); return; }
+            if (!SystemParametersInfo(0x006B /* SPI_SETMENUSHOWDELAY */, v, IntPtr.Zero, 1 | 2)) throw new System.ComponentModel.Win32Exception();
+        }
+
+        public override string Describe(string value) { return value + L.T(" мс", " ms"); }
+    }
+
+    /// <summary>Hibernation (and the hiberfil.sys it keeps on the system drive), switched by powercfg as Windows does it.</summary>
+    class Hibernation : Tweak
+    {
+        const string Path = @"SYSTEM\CurrentControlSet\Control\Power";
+
+        public override string Capture() { return Reg.Capture(true, Path, "HibernateEnabled"); }
+
+        public override void Restore(string raw) { Set(Reg.RawDword(raw) == 0 ? "0" : "1"); }
+
+        public override string ValueOf(string raw) { return Reg.RawDword(raw) == 0 ? "0" : "1"; }
+
+        public override void Set(string value)
+        {
+            if (Reg.TestRoot != null) { Reg.SetDword(true, Path, "HibernateEnabled", value == "1" ? 1 : 0); return; }
+            string exe = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "powercfg.exe");
+            var psi = new System.Diagnostics.ProcessStartInfo(exe, "/hibernate " + (value == "1" ? "on" : "off")) { UseShellExecute = false, CreateNoWindow = true };
+            using (var p = System.Diagnostics.Process.Start(psi))
+            {
+                if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } throw new TimeoutException("powercfg"); }
+                if (p.ExitCode != 0) throw new InvalidOperationException("powercfg /hibernate: " + p.ExitCode);
+            }
+        }
+
+        public override string Describe(string value) { return value == "1" ? L.T("включена", "on") : L.T("выключена", "off"); }
+
+        /// <summary>Size of hiberfil.sys now (bytes, 0 if none).</summary>
+        public static long FileSize()
+        {
+            try
+            {
+                var f = new System.IO.FileInfo(System.IO.Path.Combine(System.IO.Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows)), "hiberfil.sys"));
+                return f.Exists ? f.Length : 0;
+            }
+            catch { return 0; }
+        }
     }
 
     /// <summary>Windows Update active hours: no restarts for updates between these hours.</summary>
