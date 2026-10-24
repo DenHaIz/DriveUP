@@ -6,27 +6,27 @@
 
 ## Русский
 
-- **Обновления** — новые драйверы из Windows Update одной кнопкой, плюс проверка на сайтах NVIDIA, AMD, Intel, Lenovo, Asus, HP и Dell и в каталоге Microsoft Update (любые чипы: Realtek, MediaTek, Qualcomm, Broadcom, чипсеты AMD…), а также недостающие библиотеки для программ и игр (Visual C++, .NET, DirectX 9).
-- **Устройства** — все устройства, их драйверы и проблемы; для неизвестного устройства драйвер ищется в каталоге Microsoft и ставится прямо отсюда.
+- **Обновления** — драйверы из Windows Update одной кнопкой; новее на сайтах NVIDIA, AMD, Intel, Lenovo, Asus, HP, Dell и в каталоге Microsoft Update; недостающие Visual C++, .NET и DirectX 9.
+- **Устройства** — все устройства, их драйверы и ошибки; драйвер для неизвестного устройства — из каталога Microsoft.
 - **Установка** — перетащите папку, `.inf`, `.zip` или `.cab`.
 - **Резервные копии** — сохранить драйверы и вернуть их после переустановки Windows.
-- **Оптимизация** *(только Pro)* — режимы «Игры» (максимум скорости), «Работа» (баланс) и «Тишина» с подбором под ваш компьютер: питание и процессор, графика, службы, фоновые процессы, предустановленные приложения, автозагрузка, реклама и Windows Update; «Замер» показывает разницу до и после. Видно, что меняется (было → станет и почему) и что висит в фоне сейчас; рискованное — только после вашего подтверждения; каждую настройку можно вернуть отдельно, группой или все сразу (`DriveUP_Pro.exe /restore` — без окна); прежние значения хранятся в `HKLM\SOFTWARE\DriveUP Pro` и переживают удаление программы.
+- **Оптимизация** *(Pro)* — режимы «Игры», «Работа» и «Тишина» под ваш компьютер; видно, что меняется и почему, рискованное — только с вашего согласия, любую настройку можно вернуть.
 
 Скачайте `DriveUP.exe` или `DriveUP_Pro.exe` в [Releases](https://github.com/DenHaIz/DriveUP/releases) и запустите. Установка не нужна, нужны права администратора.
 
 ## English
 
-- **Updates** — newer drivers from Windows Update in one click, plus a check on the NVIDIA, AMD, Intel, Lenovo, Asus, HP and Dell sites and in the Microsoft Update Catalog (any chip: Realtek, MediaTek, Qualcomm, Broadcom, AMD chipset…), and missing libraries for programs and games (Visual C++, .NET, DirectX 9).
-- **Devices** — every device, its driver and its problems; for an unknown device the driver is looked up in the Microsoft catalog and installed from here.
+- **Updates** — drivers from Windows Update in one click; newer ones on the NVIDIA, AMD, Intel, Lenovo, Asus, HP and Dell sites and in the Microsoft Update Catalog; missing Visual C++, .NET and DirectX 9.
+- **Devices** — every device, its driver and its errors; a driver for an unknown device from the Microsoft catalog.
 - **Install** — drop a folder, `.inf`, `.zip` or `.cab`.
 - **Backups** — save drivers and bring them back after reinstalling Windows.
-- **Tuning** *(Pro only)* — Games (top speed), Work (balance) and Quiet modes fitted to your computer: power and processor, graphics, services, background processes, preinstalled apps, startup apps, ads and Windows Update; "Measure" shows the difference before and after. You see what changes (was → new, and why) and what runs in the background now; anything risky needs your confirmation; every setting can be returned on its own, by group or all at once (`DriveUP_Pro.exe /restore` — no window); old values are kept in `HKLM\SOFTWARE\DriveUP Pro` and survive removing the app.
+- **Tuning** *(Pro)* — Games, Work and Quiet modes fitted to your computer; you see what changes and why, anything risky needs your yes, and every setting can be returned.
 
 Download `DriveUP.exe` or `DriveUP_Pro.exe` from [Releases](https://github.com/DenHaIz/DriveUP/releases) and run it. No install needed, administrator rights required.
 
 ## Build · Сборка
 
-`build.cmd` → `bin\DriveUP.exe` and `bin\DriveUP_Pro.exe` (.NET Framework 4.8, built into Windows).
+`build.cmd` → `bin\DriveUP.exe` and `bin\DriveUP_Pro.exe` (.NET Framework 4.8, built into Windows). Developer notes: [HANDOFF.md](HANDOFF.md).
 
 ## License · Лицензия
 
