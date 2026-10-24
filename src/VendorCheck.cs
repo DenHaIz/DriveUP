@@ -107,6 +107,9 @@ namespace DriveUp
         public string Vendor = "", Title = "", VersionText = "", CurrentText = "", Url = "";
         public DateTime? Date;
         public Device Device;
+        /// <summary>Microsoft Update Catalog entries: the update ID (downloaded and installed from here), and its size.</summary>
+        public string CatalogId = "";
+        public long Size;
     }
 
     /// <summary>One vendor's way of telling the newest driver for the hardware of this PC.</summary>
@@ -122,7 +125,8 @@ namespace DriveUp
     {
         static readonly IVendorSource[] Sources =
         {
-            new NvidiaSource(), new AmdSource(), new IntelSource(), new LenovoSource(), new AsusSource(),
+            new NvidiaSource(), new AmdSource(), new IntelSource(), new LenovoSource(), new AsusSource(), new HpSource(), new DellSource(),
+            new CatalogSource(),
         };
 
         public static List<VendorUpdate> CheckAll(IList<Device> devices, PcInfo pc, int timeLimitMs = 40000)
@@ -152,7 +156,8 @@ namespace DriveUp
                 // One line per device: a PC maker's package and the chip maker's driver may both be newer;
                 // the PC maker's one is meant for this very model, so it wins.
                 var result = new List<VendorUpdate>();
-                foreach (var v in found.OrderBy(x => x.Vendor == "Lenovo" || x.Vendor == "ASUS" ? 0 : 1))
+                // Then the chip maker's own, and the Microsoft catalog last.
+                foreach (var v in found.OrderBy(x => x.Vendor == "Lenovo" || x.Vendor == "ASUS" || x.Vendor == "HP" || x.Vendor == "Dell" ? 0 : (x.Vendor == "Microsoft" ? 2 : 1)))
                     if (v.Device == null || !result.Any(x => x.Device == v.Device)) result.Add(v);
                 return result;
             }
@@ -275,6 +280,93 @@ namespace DriveUp
                     if (ms.Length > 16 << 20) throw new IOException("answer too large");
                 }
                 return ms.ToArray();
+            }
+        }
+
+        /// <summary>POST of a form (application/x-www-form-urlencoded); the answer as text (a few MB at most).</summary>
+        public static string Post(string url, string form, int timeoutMs = 20000)
+        {
+            var rq = (HttpWebRequest)WebRequest.Create(url);
+            rq.Method = "POST";
+            rq.UserAgent = Agent;
+            rq.ContentType = "application/x-www-form-urlencoded";
+            rq.Timeout = timeoutMs;
+            rq.ReadWriteTimeout = timeoutMs;
+            var body = Encoding.ASCII.GetBytes(form);
+            rq.ContentLength = body.Length;
+            using (var s = rq.GetRequestStream()) s.Write(body, 0, body.Length);
+            using (var resp = (HttpWebResponse)rq.GetResponse())
+            using (var r = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+            {
+                var buf = new char[65536];
+                var sb = new StringBuilder();
+                int n;
+                while ((n = r.Read(buf, 0, buf.Length)) > 0)
+                {
+                    sb.Append(buf, 0, n);
+                    if (sb.Length > 4 << 20) throw new IOException("answer too large");
+                }
+                return sb.ToString();
+            }
+        }
+
+        /// <summary>Downloads a file (HTTPS only, up to maxBytes); a partial file is deleted.</summary>
+        public static void DownloadFile(string url, string path, long maxBytes)
+        {
+            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) throw new IOException("https only");
+            var rq = (HttpWebRequest)WebRequest.Create(url);
+            rq.UserAgent = Agent;
+            rq.Timeout = 30000;
+            rq.ReadWriteTimeout = 60000;
+            try
+            {
+                using (var resp = (HttpWebResponse)rq.GetResponse())
+                using (var s = resp.GetResponseStream())
+                using (var f = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
+                {
+                    var buf = new byte[1 << 16];
+                    long total = 0;
+                    int n;
+                    while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        f.Write(buf, 0, n);
+                        total += n;
+                        if (total > maxBytes) throw new IOException(L.T("файл слишком большой", "the file is too large"));
+                    }
+                }
+            }
+            catch
+            {
+                try { File.Delete(path); } catch { }
+                throw;
+            }
+        }
+
+        /// <summary>The XML document inside a .cab (vendors' catalogs): unpacked by expand.exe into a protected folder, no DTDs.</summary>
+        public static System.Xml.XmlDocument CabXml(byte[] cab)
+        {
+            string dir = SafePath.NewStaging();
+            try
+            {
+                string file = Path.Combine(dir, "catalog.cab"), outDir = Path.Combine(dir, "x");
+                File.WriteAllBytes(file, cab);
+                Directory.CreateDirectory(outDir);
+                var psi = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "expand.exe"), "\"" + file + "\" -F:* \"" + outDir + "\"")
+                { UseShellExecute = false, CreateNoWindow = true };
+                using (var p = System.Diagnostics.Process.Start(psi))
+                {
+                    if (!p.WaitForExit(60000)) { try { p.Kill(); } catch { } throw new IOException("expand"); }
+                }
+                var xml = new DirectoryInfo(outDir).GetFiles().OrderByDescending(f => f.Length).FirstOrDefault();
+                if (xml == null) throw new IOException(L.T("в архиве каталога пусто", "the catalog archive is empty"));
+                var doc = new System.Xml.XmlDocument { XmlResolver = null };
+                var settings = new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null };
+                using (var r = System.Xml.XmlReader.Create(xml.FullName, settings)) doc.Load(r);
+                return doc;
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { }
             }
         }
 

@@ -18,7 +18,7 @@ namespace DriveUp
         // What the computer is (one dim line) and what suits it (up to two lines).
         readonly StatusText smartText = new StatusText { Flags = TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis };
         readonly StatusText recText = new StatusText { Flags = TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis };
-        readonly FlatButton btnSmart, btnApply, btnReturnAll;
+        readonly FlatButton btnSmart, btnMeasure, btnApply, btnReturnAll;
         readonly Segmented view;
         readonly TuneList list = new TuneList();
         readonly StatusText info = new StatusText();
@@ -44,6 +44,10 @@ namespace DriveUp
             smartCard.Controls.Add(smartText);
             smartCard.Controls.Add(recText);
             smartCard.Controls.Add(btnSmart);
+            btnMeasure = new FlatButton("", "\uE9D9");
+            btnMeasure.SetBaseHeight(34);
+            btnMeasure.Click += (s, e) => MeasureNow();
+            smartCard.Controls.Add(btnMeasure);
             smartCard.Resize += (s, e) => LayoutSmart();
             Controls.Add(smartCard);
 
@@ -107,6 +111,9 @@ namespace DriveUp
             int x = S(18);
             btnSmart.Width = btnSmart.PreferredWidth;
             btnSmart.Location = new Point(x, smartCard.Height - btnSmart.Height - S(14));
+            btnMeasure.Width = btnMeasure.PreferredWidth;
+            btnMeasure.Location = new Point(btnSmart.Right + S(8), btnSmart.Top);
+            btnMeasure.Visible = btnMeasure.Right <= smartCard.Width - S(12);
             smartText.SetBounds(x, smartCard.TitleHeight - S(4), smartCard.Width - x * 2, S(18));
             recText.ForeOverride = Theme.Current.Text;
             recText.SetBounds(x, smartText.Bottom + S(6), smartCard.Width - x * 2, Math.Max(S(20), btnSmart.Top - smartText.Bottom - S(12)));
@@ -139,6 +146,9 @@ namespace DriveUp
         {
             smartCard.Title = L.T("Умный подбор", "Smart pick");
             SetButton(btnSmart, L.T("Подобрать для этого ПК", "Pick for this PC"));
+            SetButton(btnMeasure, L.T("Замер", "Measure"));
+            tip.SetToolTip(btnMeasure, L.T("Процессы, память, фоновая загрузка, службы, автозагрузка и время загрузки Windows — сейчас и до применения режима",
+                "Processes, memory, background load, services, startup and Windows boot time — now and before a mode was applied"));
             tip.SetToolTip(btnSmart, L.T("DriveUP Pro смотрит на компьютер — ноутбук или ПК, батарея, видеокарта, версия Windows —\nи выбирает режим и значения, которые ему подходят",
                 "DriveUP Pro looks at the computer — laptop or desktop, battery, graphics card, Windows version —\nand picks the mode and values that suit it"));
             SetButton(btnReturnAll, L.T("Вернуть всё", "Return all"));
@@ -348,6 +358,41 @@ namespace DriveUp
             }) { IsBackground = true, Name = "Tune plan" }.Start();
         }
 
+        bool measuring;
+
+        /// <summary>Measures the system now and compares with the "before" taken ahead of the first change.</summary>
+        void MeasureNow()
+        {
+            if (measuring) return;
+            measuring = true;
+            btnMeasure.Enabled = false;
+            Host.BeginBusy();
+            new Thread(() =>
+            {
+                Measure now = null;
+                try { now = Measure.Take(); } catch { }
+                Post(() =>
+                {
+                    measuring = false;
+                    btnMeasure.Enabled = true;
+                    Host.EndBusy();
+                    if (now == null) return;
+                    Measure before;
+                    lock (Settings.Sync) before = Measure.Parse(Settings.TuneBaseline);
+                    string text = (before != null
+                        ? L.T("До (", "Before (") + L.When(before.When) + L.T(") → сейчас:", ") → now:")
+                        : L.T("Сейчас (замера «до» ещё нет — он делается сам перед первым применением режима):", "Now (no \"before\" yet — it is taken by itself before a mode is first applied):"))
+                        + "\n\n" + Measure.Compare(before, now) + "\n\n" +
+                        L.T("Время загрузки меняется после перезагрузки. Запомнить текущее состояние как «до»?", "Boot time changes after a restart. Keep the current state as \"before\"?");
+                    if (ThemedDialog.Confirm(Host.Window, L.T("Замер системы", "System measurement"), text, L.T("Запомнить как «до»", "Keep as \"before\""), "\uE74E", false))
+                    {
+                        lock (Settings.Sync) Settings.TuneBaseline = now.ToString();
+                        Settings.Save();
+                    }
+                });
+            }) { IsBackground = true, Name = "measure" }.Start();
+        }
+
         void SmartPick()
         {
             if (working || recommended == null) return;
@@ -409,6 +454,20 @@ namespace DriveUp
                 int done = 0, failed = 0;
                 bool reboot = false;
                 var names = new List<string>();
+                // The "before" measurement, once, ahead of the first change (to compare with later).
+                bool noBaseline;
+                lock (Settings.Sync) noBaseline = string.IsNullOrEmpty(Settings.TuneBaseline);
+                if (noBaseline && Tuner.ChangedCount == 0)
+                {
+                    Post(() => info.SetText(L.T("Замеряю систему «до»…", "Measuring the system \"before\"…")));
+                    try
+                    {
+                        var before = Measure.Take();
+                        lock (Settings.Sync) Settings.TuneBaseline = before.ToString();
+                        Settings.Save();
+                    }
+                    catch { }
+                }
                 // A System Restore point first: if Windows misbehaves after the changes, it can be rolled back
                 // even from the recovery screen. Without one (Server, protection off) nothing stops.
                 if (Settings.RestorePoint && todo.Any(r => r.Kind == TuneKind.Change))

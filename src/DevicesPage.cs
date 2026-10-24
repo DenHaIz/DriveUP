@@ -329,13 +329,49 @@ namespace DriveUp
             return ids.Count > 0 ? ids[0] : null;
         }
 
+        bool finding;
+
+        /// <summary>
+        /// Looks the device up in the Microsoft Update Catalog right here: a driver whose hardware IDs
+        /// include this device's (newer than its own, or any for a device without a working driver) is
+        /// offered for download and install. Nothing found: the catalog search opens in the browser.
+        /// </summary>
         void FindInCatalog()
         {
             var d = Selected;
             string id = d != null ? BestId(d) : null;
-            if (id == null) return;
-            try { UserShell.OpenUrl("https://www.catalog.update.microsoft.com/Search.aspx?q=" + Uri.EscapeDataString(id)); }
-            catch (Exception ex) { Host.ShowToast(ex.Message, ToastKind.Error); }
+            if (id == null || finding) return;
+            finding = true;
+            Host.BeginBusy();
+            Host.ShowToast(L.T("Ищу драйвер в каталоге Microsoft…", "Looking in the Microsoft catalog…"), ToastKind.Info);
+            var dev = d;
+            new System.Threading.Thread(() =>
+            {
+                CatalogHit hit = null;
+                string error = null;
+                try { hit = CatalogSource.Lookup(dev, !dev.HasDriver || dev.NeedsAttention, DateTime.UtcNow.AddSeconds(60)); }
+                catch (Exception ex) { error = ex.Message; }
+                Post(() =>
+                {
+                    finding = false;
+                    Host.EndBusy();
+                    if (hit != null)
+                    {
+                        if (ThemedDialog.Confirm(Host.Window, L.T("Найден драйвер", "Driver found"),
+                                dev.Name + "\n\n" + hit.Title + "\n" + L.T("Версия ", "Version ") + hit.Version +
+                                (hit.Date.HasValue ? L.T(" от ", ", ") + L.Date(hit.Date.Value) : "") + (hit.Size > 0 ? " · " + L.Size(hit.Size) : "") + "\n" +
+                                L.T("Сейчас: ", "Now: ") + (dev.HasDriver ? dev.VersionText : L.T("драйвера нет", "no driver")) + "\n\n" +
+                                L.T("Скачать из каталога Microsoft Update и открыть на вкладке «Установка»?", "Download from the Microsoft Update Catalog and open it on the Install tab?"),
+                                L.T("Скачать", "Download"), "\uE896", false))
+                            CatalogSource.Fetch(Host, this, hit.Id, hit.Title, hit.Size);
+                        return;
+                    }
+                    Host.ShowToast(error != null ? L.T("Каталог недоступен: ", "The catalog is unavailable: ") + error
+                                                 : L.T("Подходящего драйвера новее в каталоге нет — открываю поиск", "No newer matching driver in the catalog — opening the search"), ToastKind.Info);
+                    try { UserShell.OpenUrl(CatalogSource.Base + "Search.aspx?q=" + Uri.EscapeDataString(id)); }
+                    catch { }
+                });
+            }) { IsBackground = true, Name = "catalog lookup" }.Start();
         }
 
         void OpenVendorSite()

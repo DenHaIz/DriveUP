@@ -415,7 +415,7 @@ namespace DriveUp
             stageTimer.Stop();
             Host.EndBusy();
             checkedOnce = true;
-            vendorCats = VendorGroups(vendors);
+            vendorCats = VendorGroups(vendors).Concat(RuntimeGroups()).ToList();
             if (found == null)
             {
                 failedCheck = true;
@@ -527,30 +527,36 @@ namespace DriveUp
         /// Newer drivers on vendors' sites: one group per vendor, link rows that open the download page
         /// (with the user's rights). They are not installed from here: download, then use the Install tab.
         /// </summary>
-        static List<CatGroup> VendorGroups(List<VendorUpdate> vendors)
+        List<CatGroup> VendorGroups(List<VendorUpdate> vendors)
         {
             var result = new List<CatGroup>();
             foreach (var grp in vendors.GroupBy(v => v.Vendor).OrderBy(g => g.Key))
             {
                 var items = grp.ToList();
                 string vendor = grp.Key;
+                bool catalog = vendor == "Microsoft";
                 var cg = new CatGroup
                 {
-                    Tag = "vendor:" + vendor, Glyph = "\uE774", Expanded = true,
-                    Name = () => L.T("На сайте ", "On the ") + vendor + L.T("", " site"),
+                    Tag = "vendor:" + vendor, Glyph = catalog ? "\uE896" : "\uE774", Expanded = true,
+                    Name = () => catalog ? L.T("В каталоге Microsoft Update", "In the Microsoft Update Catalog") : L.T("На сайте ", "On the ") + vendor + L.T("", " site"),
                     Desc = () => L.Count(items.Count, "драйвер новее", "драйвера новее", "драйверов новее", "newer driver", "newer drivers") +
-                                 L.T("  ·  скачайте и перетащите на «Установку»", "  ·  download, then drop it on the Install tab"),
+                                 (catalog ? L.T("  ·  нажмите, чтобы скачать и установить", "  ·  click to download and install")
+                                          : L.T("  ·  скачайте и перетащите на «Установку»", "  ·  download, then drop it on the Install tab")),
                 };
                 foreach (var v in items)
                 {
                     var vu = v;
                     cg.Items.Add(new CatItem
                     {
-                        Tag = vu, Size = 0, Badge = L.T("открыть", "open"),
+                        Tag = vu, Size = 0, Badge = vu.CatalogId.Length > 0 ? L.T("скачать", "download") : L.T("открыть", "open"),
                         Name = () => vu.Title,
                         Note = () => vu.VersionText + (vu.Date.HasValue ? L.T(" от ", ", ") + L.Date(vu.Date.Value) : "") +
                                      (vu.CurrentText.Length > 0 ? L.T("  ·  сейчас ", "  ·  now ") + vu.CurrentText : ""),
-                        Open = () => { try { UserShell.OpenUrl(vu.Url); } catch { } },
+                        Open = () =>
+                        {
+                            if (vu.CatalogId.Length > 0) CatalogSource.Fetch(Host, this, vu.CatalogId, vu.Title, vu.Size);
+                            else try { UserShell.OpenUrl(vu.Url); } catch { }
+                        },
                     });
                 }
                 result.Add(cg);
@@ -558,7 +564,64 @@ namespace DriveUp
             return result;
         }
 
-        int VendorCount { get { return vendorCats.Sum(g => g.Items.Count); } }
+        int VendorCount { get { return vendorCats.Where(g => !"runtimes".Equals(g.Tag)).Sum(g => g.Items.Count); } }
+
+        /// <summary>
+        /// Libraries programs and games need that are missing here: one row each, plus "install all".
+        /// Official Microsoft downloads, run only when signed by Microsoft (see Runtimes).
+        /// </summary>
+        List<CatGroup> RuntimeGroups()
+        {
+            List<Runtime> missing;
+            try { missing = Runtimes.Missing(); }
+            catch { missing = new List<Runtime>(); }
+            if (missing.Count == 0) return new List<CatGroup>();
+            var g = new CatGroup
+            {
+                Tag = "runtimes", Glyph = "\uE74C", Expanded = missing.Count <= 6,
+                Name = () => L.T("Компоненты для программ и игр", "Components for programs and games"),
+                Desc = () => L.Count(missing.Count, "не хватает компонента", "не хватает компонентов", "не хватает компонентов", "component missing", "components missing") +
+                             L.T("  ·  с сайта Microsoft, подпись проверяется", "  ·  from Microsoft, signature checked"),
+            };
+            if (missing.Count > 1)
+                g.Items.Add(new CatItem
+                {
+                    Size = 0, Badge = L.T("установить", "install"),
+                    Name = () => L.T("Установить все недостающие", "Install everything missing"),
+                    Note = () => string.Join(", ", missing.Select(r => r.Name)),
+                    Open = () => InstallRuntimes(missing),
+                });
+            foreach (var r in missing)
+            {
+                var rt = r;
+                bool old = false;
+                try { old = rt.Installed(); } catch { }
+                g.Items.Add(new CatItem
+                {
+                    Size = 0, Badge = old ? L.T("обновить", "update") : L.T("установить", "install"),
+                    Name = () => rt.Name,
+                    Note = () => old ? L.T("установлена старая версия", "an old version is installed") : L.T("не установлен", "not installed"),
+                    Open = () => InstallRuntimes(new List<Runtime> { rt }),
+                });
+            }
+            return new List<CatGroup> { g };
+        }
+
+        void InstallRuntimes(List<Runtime> items)
+        {
+            if (working || scanning) { Host.ShowToast(L.T("Дождитесь окончания проверки или установки", "Wait until the check or install finishes"), ToastKind.Info); return; }
+            Runtimes.Install(Host, this, items, (ok, errors) =>
+            {
+                if (errors.Count == 0) Host.ShowToast(L.T("Установлено компонентов: ", "Components installed: ") + ok, ToastKind.Success);
+                else Host.ShowToast(string.Join("\n", errors.Take(3)), ok > 0 ? ToastKind.Info : ToastKind.Error);
+                // What is still missing.
+                vendorCats = vendorCats.Where(x => !"runtimes".Equals(x.Tag)).Concat(RuntimeGroups()).ToList();
+                var shown = cats.Concat(vendorCats).ToList();
+                Transition.CrossFade(list, () => list.SetGroups(shown), 260);
+                UpdateEmpty();
+                Host.UpdateStatus();
+            });
+        }
 
         static string NoteFor(DriverUpdate u)
         {

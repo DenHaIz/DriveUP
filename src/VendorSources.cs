@@ -173,7 +173,8 @@ namespace DriveUp
         public List<VendorUpdate> Check(IList<Device> devices, PcInfo pc)
         {
             var result = new List<VendorUpdate>();
-            var candidates = devices.Where(x => x.HasDriver && (VendorCheck.VendorId(x) == "8086" || VendorCheck.VendorId(x) == "8087")).ToList();
+            // Killer network cards are Intel products on Realtek chips (VEN_10EC): the feed lists them too.
+            var candidates = devices.Where(x => x.HasDriver && (VendorCheck.VendorId(x) == "8086" || VendorCheck.VendorId(x) == "8087" || VendorCheck.VendorId(x) == "10EC")).ToList();
             if (candidates.Count == 0) return result;
             var zip = VendorCheck.GetBytes("https://dsadata.intel.com/data/en", null, 30000);
             string json = null;

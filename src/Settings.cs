@@ -30,6 +30,8 @@ namespace DriveUp
         /// </summary>
         public static readonly System.Collections.Generic.Dictionary<string, string> TuneSaved =
             new System.Collections.Generic.Dictionary<string, string>();
+        /// <summary>The "before" measurement (Measure.ToString), taken before the first change; empty = none.</summary>
+        public static string TuneBaseline = "";
         /// <summary>When each setting was changed and by which mode: id → "mode|ISO time".</summary>
         public static readonly System.Collections.Generic.Dictionary<string, string> TuneWhen =
             new System.Collections.Generic.Dictionary<string, string>();
@@ -186,6 +188,7 @@ namespace DriveUp
                     {
                         string val = Convert.ToString(k.GetValue(name, "", Microsoft.Win32.RegistryValueOptions.DoNotExpandEnvironmentNames));
                         if (name == "TuneMode") TuneMode = val;
+                        else if (name == "Baseline") TuneBaseline = val;
                         else if (name.StartsWith("Saved.", StringComparison.Ordinal)) TuneSaved[name.Substring(6)] = val;
                         else if (name.StartsWith("When.", StringComparison.Ordinal)) TuneWhen[name.Substring(5)] = val;
                     }
@@ -202,12 +205,13 @@ namespace DriveUp
                 {
                     foreach (string name in k.GetValueNames())
                     {
-                        bool keep = name == "TuneMode" ||
+                        bool keep = name == "TuneMode" || name == "Baseline" ||
                                     (name.StartsWith("Saved.", StringComparison.Ordinal) && TuneSaved.ContainsKey(name.Substring(6))) ||
                                     (name.StartsWith("When.", StringComparison.Ordinal) && TuneSaved.ContainsKey(name.Substring(5)));
                         if (!keep) k.DeleteValue(name, false);
                     }
                     k.SetValue("TuneMode", TuneMode, Microsoft.Win32.RegistryValueKind.String);
+                    k.SetValue("Baseline", TuneBaseline ?? "", Microsoft.Win32.RegistryValueKind.String);
                     foreach (var kv in TuneSaved) k.SetValue("Saved." + kv.Key, kv.Value, Microsoft.Win32.RegistryValueKind.String);
                     foreach (var kv in TuneWhen) if (TuneSaved.ContainsKey(kv.Key)) k.SetValue("When." + kv.Key, kv.Value, Microsoft.Win32.RegistryValueKind.String);
                 }

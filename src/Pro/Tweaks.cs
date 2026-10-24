@@ -304,7 +304,7 @@ namespace DriveUp
     }
 
     /// <summary>Groups in the list, in the order they are shown and applied.</summary>
-    enum TuneCat { Power, Gaming, Interface, Services, Background, Tasks, Startup, Privacy, System, Updates }
+    enum TuneCat { Power, Gaming, Interface, Services, Background, Apps, Tasks, Startup, Privacy, System, Updates }
 
     /// <summary>
     /// One system setting DriveUP Pro can change and put back exactly as it was. Values are short

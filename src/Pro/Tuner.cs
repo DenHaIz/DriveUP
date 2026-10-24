@@ -92,6 +92,7 @@ namespace DriveUp
                 case TuneCat.Interface: return L.T("Интерфейс", "Interface");
                 case TuneCat.Services: return L.T("Службы", "Services");
                 case TuneCat.Background: return L.T("Фоновые процессы", "Background processes");
+                case TuneCat.Apps: return L.T("Предустановленные приложения", "Preinstalled apps");
                 case TuneCat.Tasks: return L.T("Фоновые задачи", "Background tasks");
                 case TuneCat.Startup: return L.T("Автозагрузка", "Startup");
                 case TuneCat.Privacy: return L.T("Реклама и подсказки", "Ads and suggestions");
@@ -348,6 +349,36 @@ namespace DriveUp
             { OnText = () => L.T("не собираются", "off"), OffText = () => L.T("собираются и отправляются", "collected and sent") },
                 "wer", TuneCat.System, "\uE783", () => L.T("Отчёты об ошибках Windows", "Windows Error Reporting"));
 
+            // ----- Windows Update -----
+            var noReboot = Add(new RegSwitch(true, @"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU", "NoAutoRebootWithLoggedOnUsers", 1, 0)
+            { OnText = () => L.T("ждёт, пока вы выйдете", "waits until you sign out"), OffText = () => L.T("может перезагрузить сама", "may restart by itself") },
+                "noautoreboot", TuneCat.Updates, "\uE777", () => L.T("Перезагрузка после обновлений", "Restart after updates"));
+            var autoDrivers = Add(new RegSwitch(true, @"SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching", "SearchOrderConfig", 1, 0)
+            { OnWhenAbsent = () => true, OnText = () => L.T("Windows ставит сама", "Windows installs them"), OffText = () => L.T("не ставит сама", "not by itself") },
+                "autodrivers", TuneCat.Updates, "\uE7F8", () => L.T("Драйверы для новых устройств из Windows Update", "Drivers for new devices from Windows Update"));
+            var pause = Add(new PauseUpdates(), "pauseupdates", TuneCat.Updates, "\uE769", () => L.T("Пауза обновлений на 7 дней", "Pause updates for 7 days"));
+
+            // ----- preinstalled apps: only by choice, each one named -----
+            var apps = new List<StoreApp>();
+            foreach (var a in new[]
+            {
+                new[] { "king.com.CandyCrushSaga_", "Candy Crush Saga" }, new[] { "king.com.CandyCrushSodaSaga_", "Candy Crush Soda Saga" },
+                new[] { "king.com.BubbleWitch3Saga_", "Bubble Witch 3 Saga" }, new[] { "king.com.CandyCrushFriends_", "Candy Crush Friends" },
+                new[] { "BytedancePte.Ltd.TikTok_", "TikTok" }, new[] { "Disney.37853FC22B2CE_", "Disney+" }, new[] { "AmazonVideo.PrimeVideo_", "Prime Video" },
+                new[] { "Facebook.Facebook_", "Facebook" }, new[] { "Facebook.InstagramBeta_", "Instagram" }, new[] { "5A894077.McAfeeSecurity_", "McAfee Security" },
+                new[] { "Clipchamp.Clipchamp_", "Clipchamp" }, new[] { "Microsoft.MicrosoftSolitaireCollection_", "Microsoft Solitaire Collection" },
+                new[] { "Microsoft.BingNews_", "Microsoft News" }, new[] { "Microsoft.GetHelp_", "Get Help" }, new[] { "Microsoft.Getstarted_", "Tips" },
+                new[] { "Microsoft.MicrosoftOfficeHub_", "Microsoft 365 (Office)" }, new[] { "Microsoft.WindowsFeedbackHub_", "Feedback Hub" },
+                new[] { "Microsoft.ZuneVideo_", "Movies & TV" }, new[] { "Microsoft.549981C3F5F10_", "Cortana" }, new[] { "Microsoft.People_", "People" },
+                new[] { "Microsoft.MixedReality.Portal_", "Mixed Reality Portal" }, new[] { "Microsoft.SkypeApp_", "Skype" },
+                new[] { "Microsoft.PowerAutomateDesktop_", "Power Automate" }, new[] { "MicrosoftCorporationII.MicrosoftFamily_", "Microsoft Family" },
+            })
+            {
+                var app = new StoreApp(a[0], a[1]);
+                Catalog.Add(app);
+                apps.Add(app);
+            }
+
             // Shared by all modes: what only costs and never helps.
             Func<Machine, List<TuneStep>> common = m =>
             {
@@ -360,7 +391,13 @@ namespace DriveUp
                     Step(bing, "1", () => L.T("Пуск ищет только на компьютере — быстрее и без рекламы", "Start searches this PC only — faster, no ads")),
                     Step(activity, "1", () => L.T("Windows не собирает журнал действий в фоне", "Windows keeps no activity log in the background")),
                     Step(tailored, "0", () => L.T("Без подбора советов и рекламы по данным диагностики", "No tips and ads picked from diagnostic data")),
+                    Opt(autoDrivers, "0", () => L.T("Windows не заменит сама драйвер, который вы поставили", "Windows will not replace a driver you installed"),
+                        () => L.T("для нового устройства драйвер ставьте через DriveUP", "install drivers for new devices with DriveUP")),
                 };
+                // The same in every mode, so switching modes never brings them back.
+                foreach (var app in apps)
+                    s.Add(Opt(app, "0", () => L.T("Предустановлено, в фоне обновляется и присылает уведомления", "Preinstalled, updates in the background and sends notifications"),
+                        () => L.T("вернуть можно только из Microsoft Store", "can only come back from the Microsoft Store")));
                 if (!m.Managed)
                     s.Add(Step(wer, "1", () => L.T("После сбоев программ Windows не собирает и не отправляет отчёты — меньше нагрузки на диск", "After crashes Windows does not collect and send reports — less disk load")));
                 // A managed PC (domain, Entra ID, Intune) gets its commands through the push routing service and
@@ -437,6 +474,9 @@ namespace DriveUp
                     // SysMain also runs memory compression: keep it where memory is tight or the drive is slow.
                     if (m.SystemSsd && m.RamGb >= 15.5)
                         s.Add(Step(sysMain, "disabled", () => L.T("На SSD и ", "On an SSD with ") + Math.Round(m.RamGb) + L.T(" ГБ памяти предзагрузка почти не нужна", " GB of memory preloading is hardly needed")));
+                    s.Add(Step(noReboot, "1", () => L.T("Обновления не перезагрузят компьютер посреди игры", "Updates will not restart the PC mid-game")));
+                    s.Add(Opt(pause, "1", () => L.T("Неделю без скачивания и установки обновлений в фоне", "A week without updates downloading and installing in the background"),
+                        () => L.T("обновления безопасности тоже подождут", "security updates wait too")));
                     s.AddRange(common(m));
                     return s;
                 },
@@ -459,6 +499,7 @@ namespace DriveUp
                         Step(fast, "0", () => L.T("Чистый запуск при каждом включении: обновления и драйверы применяются полностью", "A clean start every time: updates and drivers apply fully")),
                         Step(hours, "8-20", () => L.T("Windows не перезагрузится для обновлений посреди рабочего дня", "Windows will not restart for updates mid-workday")),
                         Step(menu, "100", () => L.T("Подменю открываются без паузы", "Submenus open without a pause")),
+                        Step(noReboot, "1", () => L.T("Обновления не перезагрузят компьютер, пока вы работаете", "Updates will not restart the PC while you work")),
                     };
                     if (m.SystemSsd) s.Add(Step(delay, "1", () => L.T("Программы автозагрузки стартуют сразу", "Startup programs start at once")));
                     if (!m.Mobile) s.Add(HibernationStep(hiber));

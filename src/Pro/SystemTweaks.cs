@@ -379,6 +379,36 @@ namespace DriveUp
                 () => L.T("файлы не синхронизируются", "files stop syncing"), "OneDrive", "GoogleDriveFS", "Dropbox", "YandexDisk2"),
         };
 
+        /// <summary>How many programs start with Windows now (any, not only the listed ones): for the measurement.</summary>
+        public static int CountEnabled()
+        {
+            int n = 0;
+            const string Approved = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\";
+            Func<bool, string, string, bool> on = (machine, sub, name) =>
+            {
+                var b = Reg.Get(machine, Approved + sub, name) as byte[];
+                return b == null || b.Length == 0 || (b[0] & 1) == 0;
+            };
+            foreach (var key in new[] { Tuple.Create(false, Cv, "Run"), Tuple.Create(true, Cv, "Run"), Tuple.Create(true, Cv32, "Run32") })
+                foreach (string name in Reg.ValueNames(key.Item1, key.Item2))
+                    if (name.Length > 0 && on(key.Item1, key.Item3, name)) n++;
+            foreach (var folder in new[] { Tuple.Create(false, Environment.SpecialFolder.Startup), Tuple.Create(true, Environment.SpecialFolder.CommonStartup) })
+            {
+                try
+                {
+                    string dir = Environment.GetFolderPath(folder.Item2);
+                    if (dir.Length == 0 || !Directory.Exists(dir)) continue;
+                    foreach (var f in Directory.GetFiles(dir))
+                    {
+                        string name = Path.GetFileName(f);
+                        if (!name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase) && on(folder.Item1, "StartupFolder", name)) n++;
+                    }
+                }
+                catch { }
+            }
+            return n;
+        }
+
         /// <summary>Startup programs on the list, as they are now.</summary>
         public static List<StartupFound> Find()
         {

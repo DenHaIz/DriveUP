@@ -161,6 +161,9 @@ namespace DriveUp
             return dir;
         }
 
+        /// <summary>A protected folder for a downloaded driver package (removed on exit like unpacked archives).</summary>
+        public static string NewDownloadDir() { return NewTemp(); }
+
         static bool InStaging(string path)
         {
             lock (tempDirs)
