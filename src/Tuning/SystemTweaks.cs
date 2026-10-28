@@ -365,6 +365,12 @@ namespace DriveUp
             R(1, @"Wondershare.*Helper|WSHelper", () => L.T("Фоновый помощник Wondershare", "Wondershare background helper"), null, "WSHelper", "Wondershare Helper Compact"),
             R(1, @"jusched|Java Update", () => L.T("Проверяет обновления Java и держит процесс", "Checks for Java updates and keeps a process"), null, "jusched"),
             R(1, @"AvastBrowser|AVG Secure Browser|CCleaner Browser", () => L.T("Браузер-«нагрузка» от антивируса", "Bundled browser from an antivirus")),
+            // Chrome, Brave and others add "...AutoLaunch_<hash>" with --no-startup-window, as Edge does.
+            R(1, @"AutoLaunch_[0-9A-F]{6,}|(chrome|brave|vivaldi)\.exe.*--no-startup-window", () => L.T("Браузер запускается заранее и ждёт в фоне", "The browser starts in advance and waits in the background")),
+            R(1, @"AdobeCollabSync|Acrobat Assistant|AcroTray", () => L.T("Помощники Acrobat: синхронизация и значок в трее, сам Acrobat открывается без них", "Acrobat helpers: sync and a tray icon; Acrobat opens fine without them"), null,
+                "AdobeCollabSync", "AcroTray"),
+            R(1, @"LogiDA|Logitech Download Assistant", () => L.T("Помощник загрузок Logitech проверяет обновления при каждом входе", "Logitech Download Assistant checks for updates at every sign-in"), null, "LogiDA"),
+            R(1, @"Cortana", () => L.T("Cortana закрыта Microsoft", "Microsoft retired Cortana"), null, "Cortana"),
             R(2, @"\bsteam(\.exe)?\b", () => L.T("Steam можно открыть перед игрой", "Open Steam before you play"), null, "steam", "steamwebhelper"),
             R(2, @"discord", () => L.T("Тяжёлый мессенджер — запускайте, когда нужен", "A heavy messenger — start it when you need it"), null, "Discord"),
             R(2, @"spotify", () => L.T("Запускается и висит в фоне", "Starts and sits in the background"), null, "Spotify"),
@@ -373,10 +379,14 @@ namespace DriveUp
             R(2, @"telegram|viber|whatsapp|\bzoom\b|slack|com\.squirrel\.Teams|MSTeams|\bTeams\b", () => L.T("Мессенджер можно запускать вручную", "Start the messenger by hand"), null,
                 "Telegram", "Viber", "WhatsApp", "Zoom", "slack", "ms-teams", "Teams"),
             R(2, @"utorrent|bittorrent|qbittorrent", () => L.T("Торрент-клиент раздаёт в фоне и занимает сеть", "The torrent client seeds in the background and takes bandwidth"), null, "uTorrent", "BitTorrent", "qbittorrent"),
+            R(2, @"Docker Desktop", () => L.T("Запускает виртуальную машину WSL и занимает гигабайты памяти — откройте, когда нужен", "Starts a WSL virtual machine and takes gigabytes of memory — open it when you need it"), null,
+                "Docker Desktop", "com.docker.backend"),
+            R(2, @"Overwolf|\bMedal\b", () => L.T("Оверлей и запись клипов держат процессы в фоне", "Overlays and clip recording keep processes in the background"), null, "Overwolf", "Medal"),
+            R(2, @"Microsoft\.Copilot|\bCopilot\b", () => L.T("Copilot откроется, когда понадобится", "Copilot opens when you need it"), null, "Copilot"),
             R(2, @"Creative Cloud|CCXProcess|AdobeAAMUpdater", () => L.T("Фоновые процессы Adobe Creative Cloud", "Adobe Creative Cloud background processes"), null,
                 "Creative Cloud", "CCXProcess", "AdobeIPCBroker", "CoreSync", "Adobe Desktop Service"),
-            R(3, @"OneDrive|GoogleDriveFS|Dropbox|Yandex\.?Disk", () => L.T("Облачный диск: файлы перестанут синхронизироваться, пока его не запустить", "Cloud drive: files stop syncing until you start it"),
-                () => L.T("файлы не синхронизируются", "files stop syncing"), "OneDrive", "GoogleDriveFS", "Dropbox", "YandexDisk2"),
+            R(3, @"OneDrive|GoogleDriveFS|Dropbox|Yandex\.?Disk|iCloud|MEGAsync", () => L.T("Облачный диск: файлы перестанут синхронизироваться, пока его не запустить", "Cloud drive: files stop syncing until you start it"),
+                () => L.T("файлы не синхронизируются", "files stop syncing"), "OneDrive", "GoogleDriveFS", "Dropbox", "YandexDisk2", "iCloudDrive", "iCloudServices", "MEGAsync"),
         };
 
         /// <summary>How many programs start with Windows now (any, not only the listed ones): for the measurement.</summary>
@@ -607,6 +617,84 @@ namespace DriveUp
             Reg.SetDword(false, Adv, "TaskbarAnimations", on ? 1 : 0);
         }
 
+        public override string Describe(string value) { return value == "1" ? L.T("включены", "on") : L.T("выключены", "off"); }
+    }
+
+    /// <summary>
+    /// The accessibility shortcuts that pop up a question mid-game: Shift pressed five times (Sticky Keys),
+    /// right Shift held for 8 s (Filter Keys), Num Lock held for 5 s (Toggle Keys). Only the shortcuts are
+    /// switched (as in Settings → Accessibility → Keyboard); the features themselves stay as they are.
+    /// </summary>
+    class AccessHotkeys : Tweak
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        struct KEYS { public int Size, Flags; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct FILTERKEYS { public int Size, Flags, Wait, Delay, Repeat, Bounce; }
+
+        [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(int action, int param, ref KEYS value, int winIni);
+        [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(int action, int param, ref FILTERKEYS value, int winIni);
+
+        const int HotkeyActive = 4;   // SKF_ / FKF_ / TKF_HOTKEYACTIVE
+        // Get / set actions: Sticky Keys, Filter Keys, Toggle Keys.
+        static readonly int[] Get = { 0x003A, 0x0032, 0x0034 }, SetAction = { 0x003B, 0x0033, 0x0035 };
+
+        /// <summary>"1" or "0" for each shortcut: Sticky, Filter, Toggle Keys.</summary>
+        string[] Read()
+        {
+            if (Reg.TestRoot != null) return (Reg.Get(false, "Access", "Hotkeys") as string ?? "1,1,1").Split(',');
+            var r = new string[3];
+            for (int i = 0; i < 3; i++) r[i] = (Flags(i) & HotkeyActive) != 0 ? "1" : "0";
+            return r;
+        }
+
+        static int Flags(int i)
+        {
+            if (i == 1)
+            {
+                var f = new FILTERKEYS { Size = Marshal.SizeOf(typeof(FILTERKEYS)) };
+                if (!SystemParametersInfo(Get[i], f.Size, ref f, 0)) throw new System.ComponentModel.Win32Exception();
+                return f.Flags;
+            }
+            var k = new KEYS { Size = Marshal.SizeOf(typeof(KEYS)) };
+            if (!SystemParametersInfo(Get[i], k.Size, ref k, 0)) throw new System.ComponentModel.Win32Exception();
+            return k.Flags;
+        }
+
+        void Write(string[] on)
+        {
+            if (Reg.TestRoot != null) { Reg.SetString(false, "Access", "Hotkeys", string.Join(",", on)); return; }
+            for (int i = 0; i < 3; i++)
+            {
+                bool want = on[i] == "1";
+                // SPIF_UPDATEINIFILE | SPIF_SENDCHANGE: kept for the user and applied at once.
+                if (i == 1)
+                {
+                    var f = new FILTERKEYS { Size = Marshal.SizeOf(typeof(FILTERKEYS)) };
+                    if (!SystemParametersInfo(Get[i], f.Size, ref f, 0)) throw new System.ComponentModel.Win32Exception();
+                    f.Flags = want ? f.Flags | HotkeyActive : f.Flags & ~HotkeyActive;
+                    if (!SystemParametersInfo(SetAction[i], f.Size, ref f, 1 | 2)) throw new System.ComponentModel.Win32Exception();
+                }
+                else
+                {
+                    var k = new KEYS { Size = Marshal.SizeOf(typeof(KEYS)) };
+                    if (!SystemParametersInfo(Get[i], k.Size, ref k, 0)) throw new System.ComponentModel.Win32Exception();
+                    k.Flags = want ? k.Flags | HotkeyActive : k.Flags & ~HotkeyActive;
+                    if (!SystemParametersInfo(SetAction[i], k.Size, ref k, 1 | 2)) throw new System.ComponentModel.Win32Exception();
+                }
+            }
+        }
+
+        public override string Capture() { return string.Join(",", Read()); }
+
+        public override void Restore(string raw)
+        {
+            var p = raw.Split(',');
+            if (p.Length == 3) Write(p);
+        }
+
+        public override string ValueOf(string raw) { return raw.Split(',').Any(x => x == "1") ? "1" : "0"; }
+        public override void Set(string value) { Write(new[] { value, value, value }); }
         public override string Describe(string value) { return value == "1" ? L.T("включены", "on") : L.T("выключены", "off"); }
     }
 

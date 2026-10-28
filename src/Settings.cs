@@ -19,6 +19,8 @@ namespace DriveUp
         public static bool RestorePoint = true;
         /// <summary>Look for driver updates as soon as the window opens.</summary>
         public static bool CheckOnStart = true;
+        /// <summary>Tuning: measure the system before the first change and offer a before/after comparison (off unless the user turns it on).</summary>
+        public static bool TuneMeasure = false;
         public static DateTime LastCheck = DateTime.MinValue;
         /// <summary>Where driver backups go; empty = Documents\DriveUP Backup.</summary>
         public static string BackupRoot = "";
@@ -127,6 +129,7 @@ namespace DriveUp
                 case "Language": Language = val; break;
                 case "RestorePoint": RestorePoint = val == "1"; break;
                 case "CheckOnStart": CheckOnStart = val == "1"; break;
+                case "TuneMeasure": TuneMeasure = val == "1"; break;
                 case "LastCheck": LastCheck = ParseDate(val); break;
                 case "BackupRoot": BackupRoot = val; break;
                 case "TuneMode": TuneMode = val; break;
@@ -255,6 +258,7 @@ namespace DriveUp
             sb.AppendLine("Language=" + Language);
             sb.AppendLine("RestorePoint=" + (RestorePoint ? "1" : "0"));
             sb.AppendLine("CheckOnStart=" + (CheckOnStart ? "1" : "0"));
+            sb.AppendLine("TuneMeasure=" + (TuneMeasure ? "1" : "0"));
             sb.AppendLine("LastCheck=" + FormatDate(LastCheck));
             sb.AppendLine("BackupRoot=" + BackupRoot);
             // Written aside and swapped in: a crash mid-write never leaves a half file (DriveUP

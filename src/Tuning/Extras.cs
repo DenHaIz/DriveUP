@@ -58,7 +58,8 @@ namespace DriveUp
 
     /// <summary>
     /// A preinstalled Store app (games, trials, promotions). Removed for this user with
-    /// Remove-AppxPackage; it cannot be put back by itself — "Return" opens its Microsoft Store page.
+    /// Remove-AppxPackage; "Return" registers it again from the copy Windows keeps for new users,
+    /// and where there is none, opens its Microsoft Store page.
     /// </summary>
     class StoreApp : Tweak
     {
@@ -93,10 +94,13 @@ namespace DriveUp
         {
             var p = raw.Split('|');
             if (p.Length != 2 || p[0] != "1" || Family() != null) return;
-            // Cannot be reinstalled silently: its Store page opens for the user (with the user's rights).
             if (Reg.TestRoot != null) { Reg.SetDword(false, Families + "\\" + p[1], "x", 1); return; }
-            if (Regex.IsMatch(p[1], @"^[A-Za-z0-9.\-]+_[a-z0-9]+$"))
-                UserShell.OpenUrl("ms-windows-store://pdp/?PFN=" + p[1]);
+            if (!Regex.IsMatch(p[1], @"^[A-Za-z0-9.\-]+_[a-z0-9]+$")) return;
+            // A preinstalled app stays on the disk for new users: registered again from there, as it was.
+            try { PowerShell("Add-AppxPackage -RegisterByFamilyName -MainPackage '" + p[1] + "' -ErrorAction Stop"); }
+            catch { }
+            // Not on this computer any more: its Store page opens for the user (with the user's rights).
+            if (Family() == null) UserShell.OpenUrl("ms-windows-store://pdp/?PFN=" + p[1]);
         }
 
         public override string ValueOf(string raw) { return raw.StartsWith("1|") ? "1" : "0"; }
@@ -112,14 +116,21 @@ namespace DriveUp
                 using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(Reg.TestRoot + @"\HKCU\" + Families, true)) if (k != null) k.DeleteSubKeyTree(f, false);
                 return;
             }
+            string err = PowerShell("Get-AppxPackage | Where-Object { $_.PackageFamilyName -eq '" + f + "' } | Remove-AppxPackage -ErrorAction Stop");
+            if (Family() != null) throw new InvalidOperationException(err.Length > 0 ? err.Split('\n')[0].Trim() : L.T("не удалось удалить", "could not remove"));
+        }
+
+        /// <summary>Runs one PowerShell command without a window; returns what it wrote to stderr.</summary>
+        static string PowerShell(string command)
+        {
             string ps = System.IO.Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
-            var psi = new ProcessStartInfo(ps, "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Get-AppxPackage | Where-Object { $_.PackageFamilyName -eq '" + f + "' } | Remove-AppxPackage -ErrorAction Stop\"")
+            var psi = new ProcessStartInfo(ps, "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + command + "\"")
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
             using (var p = Process.Start(psi))
             {
                 string err = p.StandardError.ReadToEnd();
-                if (!p.WaitForExit(180000)) { try { p.Kill(); } catch { } throw new TimeoutException("Remove-AppxPackage"); }
-                if (Family() != null) throw new InvalidOperationException(err.Length > 0 ? err.Split('\n')[0].Trim() : L.T("не удалось удалить", "could not remove"));
+                if (!p.WaitForExit(180000)) { try { p.Kill(); } catch { } throw new TimeoutException("PowerShell"); }
+                return err;
             }
         }
 

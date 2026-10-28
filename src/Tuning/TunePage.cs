@@ -19,6 +19,8 @@ namespace DriveUp
         readonly StatusText smartText = new StatusText { Flags = TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis };
         readonly StatusText recText = new StatusText { Flags = TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis };
         readonly FlatButton btnSmart, btnMeasure, btnApply, btnReturnAll;
+        /// <summary>Measuring before / after: off by default, the Measure button shows only while it is on.</summary>
+        readonly ToggleSwitch swMeasure = new ToggleSwitch("");
         readonly Segmented view;
         readonly TuneList list = new TuneList();
         readonly StatusText info = new StatusText();
@@ -47,7 +49,11 @@ namespace DriveUp
             btnMeasure = new FlatButton("", "\uE9D9");
             btnMeasure.SetBaseHeight(Theme.ControlH);
             btnMeasure.Click += (s, e) => MeasureNow();
+            btnMeasure.Visible = Settings.TuneMeasure;
             smartCard.Controls.Add(btnMeasure);
+            swMeasure.Checked = Settings.TuneMeasure;
+            swMeasure.CheckedChanged += (s, e) => MeasureSwitched();
+            smartCard.Controls.Add(swMeasure);
             smartCard.Resize += (s, e) => LayoutSmart();
             Controls.Add(smartCard);
 
@@ -113,7 +119,8 @@ namespace DriveUp
             btnSmart.Location = new Point(x, smartCard.Height - btnSmart.Height - S(14));
             btnMeasure.Width = btnMeasure.PreferredWidth;
             btnMeasure.Location = new Point(btnSmart.Right + S(8), btnSmart.Top);
-            btnMeasure.Visible = btnMeasure.Right <= smartCard.Width - S(12);
+            btnMeasure.Visible = Settings.TuneMeasure && btnMeasure.Right <= smartCard.Width - S(12);
+            swMeasure.Location = new Point(smartCard.Width - swMeasure.Width - S(14), Math.Max(0, (smartCard.TitleHeight - swMeasure.Height) / 2));
             smartText.SetBounds(x, smartCard.TitleHeight - S(4), smartCard.Width - x * 2, S(18));
             recText.ForeOverride = Theme.Current.Text;
             recText.SetBounds(x, smartText.Bottom + S(6), smartCard.Width - x * 2, Math.Max(S(20), btnSmart.Top - smartText.Bottom - S(12)));
@@ -149,6 +156,9 @@ namespace DriveUp
             SetButton(btnMeasure, L.T("Замер", "Measure"));
             tip.SetToolTip(btnMeasure, L.T("Процессы, память, фоновая загрузка, службы, автозагрузка и время загрузки Windows — сейчас и до применения режима",
                 "Processes, memory, background load, services, startup and Windows boot time — now and before a mode was applied"));
+            swMeasure.Text = L.T("Замер до/после", "Measure before/after");
+            tip.SetToolTip(swMeasure, L.T("Включите, чтобы сравнить систему до и после оптимизации:\nперед первым применением режима DriveUP замерит процессы, память, службы и автозагрузку (≈ 2 с),\nа кнопка «Замер» покажет, что изменилось. По умолчанию выключено.",
+                "Turn on to compare the system before and after tuning:\nbefore a mode is first applied DriveUP measures processes, memory, services and startup (≈ 2 s),\nand the Measure button shows what changed. Off by default."));
             tip.SetToolTip(btnSmart, L.T("DriveUP смотрит на компьютер — ноутбук или ПК, батарея, видеокарта, версия Windows —\nи выбирает режим и значения, которые ему подходят",
                 "DriveUP looks at the computer — laptop or desktop, battery, graphics card, Windows version —\nand picks the mode and values that suit it"));
             SetButton(btnReturnAll, L.T("Вернуть всё", "Return all"));
@@ -360,6 +370,20 @@ namespace DriveUp
 
         bool measuring;
 
+        void MeasureSwitched()
+        {
+            lock (Settings.Sync) Settings.TuneMeasure = swMeasure.Checked;
+            Settings.Save();
+            LayoutSmart();
+            if (!swMeasure.Checked) return;
+            if (btnMeasure.Visible) btnMeasure.Appear();
+            bool fresh;
+            lock (Settings.Sync) fresh = string.IsNullOrEmpty(Settings.TuneBaseline);
+            Host.ShowToast(fresh && Tuner.ChangedCount == 0
+                ? L.T("Замер включён: перед применением режима DriveUP запомнит, как было", "Measuring is on: DriveUP takes a \"before\" ahead of applying a mode")
+                : L.T("Замер включён: кнопка «Замер» сравнит с запомненным «до»", "Measuring is on: the Measure button compares with the stored \"before\""), ToastKind.Info);
+        }
+
         /// <summary>Measures the system now and compares with the "before" taken ahead of the first change.</summary>
         void MeasureNow()
         {
@@ -435,6 +459,7 @@ namespace DriveUp
             working = on;
             list.Locked = on;
             btnSmart.Enabled = !on;
+            swMeasure.Enabled = !on;
             view.Enabled = !on;
             foreach (var c in cards) c.Enabled = !on;
             if (on) { btnApply.Enabled = false; btnReturnAll.Enabled = false; }
@@ -463,9 +488,9 @@ namespace DriveUp
                 int done = 0, failed = 0;
                 bool reboot = false;
                 var names = new List<string>();
-                // The "before" measurement, once, ahead of the first change (to compare with later).
+                // The "before" measurement, once, ahead of the first change — only when the user turned measuring on.
                 bool noBaseline;
-                lock (Settings.Sync) noBaseline = string.IsNullOrEmpty(Settings.TuneBaseline);
+                lock (Settings.Sync) noBaseline = Settings.TuneMeasure && string.IsNullOrEmpty(Settings.TuneBaseline);
                 if (noBaseline && Tuner.ChangedCount == 0)
                 {
                     Post(() => info.SetText(L.T("Замеряю систему «до»…", "Measuring the system \"before\"…")));
@@ -478,13 +503,26 @@ namespace DriveUp
                     catch { }
                 }
                 // A System Restore point first: if Windows misbehaves after the changes, it can be rolled back
-                // even from the recovery screen. Without one (Server, protection off) nothing stops.
+                // even from the recovery screen. Protection off: offered to turn on; otherwise the user decides.
                 if (Settings.RestorePoint && todo.Any(r => r.Kind == TuneKind.Change))
                 {
                     Post(() => info.SetText(L.T("Создаю точку восстановления…", "Creating a restore point…")));
                     bool ok;
-                    string why = SysRestore.Create("DriveUP: " + mode.Name(), out ok);
-                    if (!ok && why != null) Post(() => Host.ShowToast(L.T("Точка восстановления не создана: ", "No restore point: ") + why, ToastKind.Info));
+                    string desc = "DriveUP: " + mode.Name();
+                    string why = SysRestore.Create(desc, out ok);
+                    if (!SysRestore.Resolve(AskUI, Host.Window, desc, ref why, ref ok))
+                    {
+                        Post(() =>
+                        {
+                            SetWorking(false);
+                            UpdateInfo();
+                            Host.ShowToast(L.T("Отменено — ничего не изменено", "Cancelled — nothing changed"), ToastKind.Info);
+                        });
+                        return;
+                    }
+                    if (ok && why != null) Post(() => Host.ShowToast(why, ToastKind.Info));
+                    else if (!ok && why != null && !SysRestore.Unsupported)
+                        Post(() => Host.ShowToast(L.T("Без точки восстановления: ", "No restore point: ") + why, ToastKind.Info));
                 }
                 foreach (var row in Tuner.Order(todo))
                 {

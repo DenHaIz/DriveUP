@@ -765,7 +765,7 @@ namespace DriveUp
                 {
                     rpNote = SysRestore.Create("DriveUP: " + L.T("обновление драйверов", "driver update"), out rpOk);
                     Post(() => ring.SetProgress(0.04f));
-                    if (!rpOk && !SysRestore.ContinueWithout(AskUI, Host.Window, rpNote))
+                    if (!SysRestore.Resolve(AskUI, Host.Window, "DriveUP: " + L.T("обновление драйверов", "driver update"), ref rpNote, ref rpOk))
                     {
                         var cancelled = new UpdateResult { Error = L.T("отменено: нет точки восстановления", "cancelled: no restore point") };
                         foreach (var u in updates)

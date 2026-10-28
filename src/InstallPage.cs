@@ -403,12 +403,12 @@ namespace DriveUp
                 {
                     Post(() => summary.SetText(L.T("Создаём точку восстановления…", "Creating a restore point…")));
                     rpError = SysRestore.Create("DriveUP: " + L.T("установка драйвера", "driver install"), out rpOk);
-                    if (rpOk) rpError = null;
-                    else if (!SysRestore.ContinueWithout(AskUI, Host.Window, rpError))
+                    if (!SysRestore.Resolve(AskUI, Host.Window, "DriveUP: " + L.T("установка драйвера", "driver install"), ref rpError, ref rpOk))
                     {
                         Post(() => InstallCancelled(queue));
                         return;
                     }
+                    if (rpOk) rpError = null;
                 }
                 bool reboot = false;
                 var copies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

@@ -128,6 +128,8 @@ namespace DriveUp
             public int Level;
             public Func<string> Reason, Warn;
             public Func<Machine, bool> When = m => true;
+            /// <summary>Only in these modes (null: every mode).</summary>
+            public string[] Modes;
         }
 
         static readonly List<Extra> extras = new List<Extra>();
@@ -139,10 +141,10 @@ namespace DriveUp
             extras.Add(new Extra { Tweak = t, Value = "0", Level = level, Reason = reason, Warn = warn });
         }
 
-        static void ExtraService(string name, string value, int level, Func<string> title, Func<string> reason, Func<string> warn = null, Func<Machine, bool> when = null)
+        static void ExtraService(string name, string value, int level, Func<string> title, Func<string> reason, Func<string> warn = null, Func<Machine, bool> when = null, string[] modes = null)
         {
             var s = Service(name, title);
-            extras.Add(new Extra { Tweak = s, Value = value, Level = level, Reason = reason, Warn = warn, When = when ?? (m => true) });
+            extras.Add(new Extra { Tweak = s, Value = value, Level = level, Reason = reason, Warn = warn, When = when ?? (m => true), Modes = modes });
         }
 
         static Tuner()
@@ -304,6 +306,14 @@ namespace DriveUp
                 () => L.T("напоминания не придут", "no reminders"), "Todo");
             Background("Microsoft.GamingApp_8wekyb3d8bbwe", 3, "Приложение Xbox", "Xbox app", () => L.T("Обновляет игры Game Pass в фоне", "Updates Game Pass games in the background"),
                 () => L.T("игры будут обновляться, только когда Xbox открыт", "games update only while Xbox is open"), "XboxPcApp", "XboxPcAppFT");
+            Background("Microsoft.Copilot_8wekyb3d8bbwe", 1, "Copilot", "Copilot", () => L.T("Откроется, когда понадобится — в фоне ему работать незачем", "Opens when you need it — no reason to run in the background"), null, "Copilot");
+            Background("Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe", 1, "Microsoft 365 (Office)", "Microsoft 365 (Office)", () => L.T("Обновляет ленту документов в фоне", "Refreshes its document feed in the background"), null);
+            Background("Microsoft.BingSearch_8wekyb3d8bbwe", 1, "Поиск Bing", "Bing Search", () => L.T("Откроется, когда понадобится", "Opens when you need it"), null);
+            Background("Microsoft.Windows.DevHome_8wekyb3d8bbwe", 1, "Dev Home", "Dev Home", () => L.T("Microsoft прекратила развитие Dev Home", "Microsoft discontinued Dev Home"), null, "DevHome");
+            Background("Microsoft.OutlookForWindows_8wekyb3d8bbwe", 3, "Outlook (новый)", "Outlook (new)", () => L.T("Проверяет почту в фоне", "Checks mail in the background"),
+                () => L.T("уведомлений о письмах не будет, пока Outlook закрыт", "no mail notifications while Outlook is closed"), "olk");
+            Background("MicrosoftWindows.CrossDevice_cw5n1h2txyewy", 3, "Телефон в меню «Пуск»", "Phone in the Start menu", () => L.T("Держит связь с телефоном для панели в «Пуске»", "Keeps the phone connected for the Start menu panel"),
+                () => L.T("панель телефона в «Пуске» не будет обновляться", "the phone panel in Start stops updating"), "CrossDeviceService");
             ExtraService("WMPNetworkSvc", "disabled", 1, () => L.T("Сетевой доступ Windows Media Player", "Windows Media Player network sharing"),
                 () => L.T("Раздача медиатеки по сети, почти никому не нужна", "Shares the media library on the network; hardly anyone needs it"));
             ExtraService("ESRV_SVC_QUEENCREEK", "disabled", 1, () => L.T("Intel: программа улучшения (телеметрия)", "Intel computing improvement (telemetry)"),
@@ -318,6 +328,28 @@ namespace DriveUp
             ExtraService("Spooler", "disabled", 3, () => L.T("Диспетчер печати", "Print Spooler"),
                 () => L.T("Нужен только для печати", "Only needed for printing"),
                 () => L.T("не будет печати и «Печати в PDF»", "no printing and no Print to PDF"), m => !m.Managed);
+            ExtraService("PcaSvc", "disabled", 3, () => L.T("Помощник по совместимости программ", "Program Compatibility Assistant"),
+                () => L.T("Следит за каждой запущенной программой, чтобы предложить режим совместимости", "Watches every program you start to offer compatibility settings"),
+                () => L.T("Windows не предложит исправить запуск старых программ", "Windows will not offer fixes for old programs"));
+            ExtraService("LMS", "disabled", 3, () => L.T("Intel: служба удалённого управления (AMT)", "Intel Local Management Service (AMT)"),
+                () => L.T("Нужна только для удалённого управления Intel vPro в организациях", "Only needed for Intel vPro remote management in organisations"),
+                () => L.T("удалённое управление Intel vPro не будет работать", "Intel vPro remote management stops working"), m => !m.Managed);
+            ExtraService("SupportAssistAgent", "manual", 3, () => "Dell SupportAssist",
+                () => L.T("Постоянно проверяет компьютер в фоне", "Keeps checking the PC in the background"),
+                () => L.T("SupportAssist будет проверять компьютер, только когда вы его откроете", "SupportAssist checks the PC only when you open it"));
+            foreach (var hp in new[] { new[] { "HPAppHelperCap", "App Helper" }, new[] { "HPDiagsCap", "Diagnostics" }, new[] { "HPSysInfoCap", "System Info" } })
+                ExtraService(hp[0], "manual", 3, () => "HP " + hp[1] + " HSA Service",
+                    () => L.T("Служба HP Support Assistant работает в фоне постоянно", "An HP Support Assistant service that runs all the time"),
+                    () => L.T("HP Support Assistant будет запускаться дольше", "HP Support Assistant starts slower"));
+            ExtraService("Bonjour Service", "manual", 3, () => "Bonjour (Apple)",
+                () => L.T("Постоянно ищет устройства Apple в сети", "Keeps looking for Apple devices on the network"),
+                () => L.T("AirPrint и общий доступ iTunes в сети не найдутся", "AirPrint and iTunes sharing are not found on the network"));
+            ExtraService("iphlpsvc", "manual", 3, () => L.T("Вспомогательная служба IP (туннели IPv6)", "IP Helper (IPv6 tunnels)"),
+                () => L.T("Держит туннели IPv6 (Teredo, IP-HTTPS), которые дома почти не нужны", "Keeps IPv6 tunnels (Teredo, IP-HTTPS) that are hardly needed at home"),
+                () => L.T("не будет Teredo: он нужен голосовому чату Xbox и некоторым VPN", "no Teredo: Xbox voice chat and some VPNs need it"), m => !m.Managed, new[] { "work", "quiet" });
+            ExtraService("NahimicService", "disabled", 3, () => L.T("Звуковые эффекты Nahimic", "Nahimic audio effects"),
+                () => L.T("Встраивается в звук игр; из-за него бывают вылеты и подтормаживания", "Hooks into game audio; known to cause crashes and stutter"),
+                () => L.T("звуковые эффекты Nahimic перестанут работать", "Nahimic sound effects stop"), null, new[] { "games" });
 
             // ----- more settings -----
             var vrr = Add(new WindowedGames("VRROptimizeEnable") { When = m => m.Build >= 19041 },
@@ -358,6 +390,45 @@ namespace DriveUp
                 "autodrivers", TuneCat.Updates, "\uE7F8", () => L.T("Драйверы для новых устройств из Windows Update", "Drivers for new devices from Windows Update"));
             var pause = Add(new PauseUpdates(), "pauseupdates", TuneCat.Updates, "\uE769", () => L.T("Пауза обновлений на 7 дней", "Pause updates for 7 days"));
 
+            // ----- Windows 11 24H2 / 25H2: background work and interruptions; each one changes something you can see or measure -----
+            const string Adv = @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
+            var wake = Add(new PowerSetting(PowerApi.SubSleep, PowerApi.WakeTimers)
+            {
+                Text = v => v == 0 ? L.T("выключены", "off") : v == 1 ? L.T("включены", "on") : L.T("только важные", "important only"),
+            }, "waketimers", TuneCat.Power, "\uE823", () => L.T("Таймеры пробуждения", "Wake timers"));
+            var saver = Add(new PowerSetting(PowerApi.SubEnergySaver, PowerApi.EnergySaverAt)
+            {
+                Text = v => v == 0 ? L.T("никогда", "never") : v >= 100 ? L.T("всегда от батареи", "always on battery") : L.T("при заряде ", "at ") + v + " %",
+            }, "energysaver", TuneCat.Power, "\uE945", () => L.T("Экономия энергии включается", "Energy saver turns on"));
+            var searchBattery = Add(new RegSwitch(true, @"SOFTWARE\Policies\Microsoft\Windows\Windows Search", "PreventIndexOnBattery", 1, 0)
+            { When = m => m.Mobile, OnText = () => L.T("ждёт зарядки", "waits for the charger"), OffText = () => L.T("работает и от батареи", "runs on battery too") },
+                "searchbattery", TuneCat.Background, "\uE721", () => L.T("Индексирование поиска от батареи", "Search indexing on battery"));
+            var bgPolicy = Add(new RegSwitch(true, @"SOFTWARE\Policies\Microsoft\Windows\AppPrivacy", "LetAppsRunInBackground", 0, 2)
+            { OnWhenAbsent = () => true, When = m => m.Windows11, OnText = () => L.T("решает каждое приложение", "each app decides"), OffText = () => L.T("запрещена всем", "denied to all") },
+                "bgpolicy", TuneCat.Background, "\uE71D", () => L.T("Фоновая работа приложений из Store", "Background activity of Store apps"));
+            bgPolicy.NeedsReboot = true;
+            var hotkeys = Add(new AccessHotkeys(), "hotkeys", TuneCat.Gaming, "\uE765", () => L.T("Сочетания залипания и фильтрации клавиш", "Sticky and Filter Keys shortcuts"));
+            var separate = Add(new RegSwitch(false, Adv, "SeparateProcess", 1, 0), "separateproc", TuneCat.Interface, "\uE838", () => L.T("Окна папок в отдельном процессе", "Folder windows in a separate process"));
+            separate.NeedsReboot = true;
+            var startAds = Add(new RegSet { When = m => m.Windows11 }
+                    .Add(false, Adv, "Start_IrisRecommendations", 0).Add(false, Adv, "Start_AccountNotifications", 0)
+                    .Add(false, Cdm, "SubscribedContent-338393Enabled", 0).Add(false, Cdm, "SubscribedContent-338387Enabled", 0)
+                    .Add(false, Cdm, "RotatingLockScreenOverlayEnabled", 0)
+                    .Add(false, @"Software\Microsoft\Windows\CurrentVersion\SearchSettings", "IsDynamicSearchBoxEnabled", 0),
+                "startads", TuneCat.Privacy, "\uE789", () => L.T("Подборки в «Пуске», поиске и на экране блокировки", "Promotions in Start, search and on the lock screen"));
+            startAds.NeedsReboot = true;
+            const string AiPolicy = @"Software\Policies\Microsoft\Windows\WindowsAI";
+            var recall = Add(new RegSet { When = m => m.Recall, OnText = () => L.T("как вы выбрали в Windows", "as you chose in Windows"), OffText = () => L.T("снимки экрана не сохраняются", "no screen snapshots") }
+                    .Add(true, AiPolicy, "DisableAIDataAnalysis", 1).Add(false, AiPolicy, "DisableAIDataAnalysis", 1),
+                "recall", TuneCat.Privacy, "\uE722", () => L.T("Recall: снимки экрана", "Recall: screen snapshots"));
+            recall.NeedsReboot = true;
+            var doPeers = Add(new RegSwitch(true, @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization", "DODownloadMode", 1, 0)
+            { OnWhenAbsent = () => true, OnText = () => L.T("раздаёт обновления другим ПК", "shares updates with other PCs"), OffText = () => L.T("только с серверов Microsoft", "from Microsoft servers only") },
+                "dopeers", TuneCat.Updates, "\uE896", () => L.T("Оптимизация доставки (обмен обновлениями)", "Delivery Optimization (sharing updates)"));
+            var restartNote = Add(new RegSwitch(true, @"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings", "RestartNotificationsAllowed2", 1, 0)
+            { OnText = () => L.T("предупреждает заранее", "warns in advance"), OffText = () => L.T("без предупреждения", "no warning") },
+                "restartnotify", TuneCat.Updates, "\uE777", () => L.T("Предупреждение о перезагрузке для обновлений", "Warning before restarting for updates"));
+
             // ----- preinstalled apps: only by choice, each one named -----
             var apps = new List<StoreApp>();
             foreach (var a in new[]
@@ -372,6 +443,8 @@ namespace DriveUp
                 new[] { "Microsoft.ZuneVideo_", "Movies & TV" }, new[] { "Microsoft.549981C3F5F10_", "Cortana" }, new[] { "Microsoft.People_", "People" },
                 new[] { "Microsoft.MixedReality.Portal_", "Mixed Reality Portal" }, new[] { "Microsoft.SkypeApp_", "Skype" },
                 new[] { "Microsoft.PowerAutomateDesktop_", "Power Automate" }, new[] { "MicrosoftCorporationII.MicrosoftFamily_", "Microsoft Family" },
+                new[] { "Microsoft.Copilot_", "Copilot" }, new[] { "Microsoft.BingSearch_", "Bing Search" }, new[] { "Microsoft.Windows.DevHome_", "Dev Home" },
+                new[] { "7EE7776C.LinkedInforWindows_", "LinkedIn" },
             })
             {
                 var app = new StoreApp(a[0], a[1]);
@@ -387,38 +460,46 @@ namespace DriveUp
                     Step(maps, "manual", () => L.T("Запустится сама, если откроете «Карты»", "Starts by itself if you open Maps")),
                     Step(nvTele, "disabled", () => L.T("Телеметрия драйвера NVIDIA, на работу видеокарты не влияет", "NVIDIA driver telemetry, does not affect the card")),
                     Step(ads, "1", () => L.T("Windows не ставит рекламные приложения сама и не показывает советы", "Windows stops installing promoted apps and showing tips")),
+                    Step(startAds, "1", () => L.T("«Пуск», поиск и экран блокировки не подгружают подборки и рекламу из интернета", "Start, search and the lock screen load no promotions from the internet")),
                     Step(adId, "0", () => L.T("Приложения не получают идентификатор для рекламы", "Apps get no ID for ads")),
                     Step(bing, "1", () => L.T("Пуск ищет только на компьютере — быстрее и без рекламы", "Start searches this PC only — faster, no ads")),
                     Step(activity, "1", () => L.T("Windows не собирает журнал действий в фоне", "Windows keeps no activity log in the background")),
                     Step(tailored, "0", () => L.T("Без подбора советов и рекламы по данным диагностики", "No tips and ads picked from diagnostic data")),
+                    Opt(recall, "1", () => L.T("Recall не делает снимки экрана в фоне — меньше нагрузки на диск и процессор", "Recall takes no screen snapshots in the background — less disk and processor load"),
+                        () => L.T("поиск по истории экрана Recall не будет работать", "Recall's screen history search stops working")),
                     Opt(autoDrivers, "0", () => L.T("Windows не заменит сама драйвер, который вы поставили", "Windows will not replace a driver you installed"),
                         () => L.T("для нового устройства драйвер ставьте через DriveUP", "install drivers for new devices with DriveUP")),
                 };
                 // The same in every mode, so switching modes never brings them back.
                 foreach (var app in apps)
                     s.Add(Opt(app, "0", () => L.T("Предустановлено, в фоне обновляется и присылает уведомления", "Preinstalled, updates in the background and sends notifications"),
-                        () => L.T("вернуть можно только из Microsoft Store", "can only come back from the Microsoft Store")));
-                if (!m.Managed)
-                    s.Add(Step(wer, "1", () => L.T("После сбоев программ Windows не собирает и не отправляет отчёты — меньше нагрузки на диск", "After crashes Windows does not collect and send reports — less disk load")));
-                // A managed PC (domain, Entra ID, Intune) gets its commands through the push routing service and
-                // reports through telemetry: those stay as the organisation set them.
+                        () => L.T("«Вернуть» поставит его снова (или откроет страницу в Microsoft Store)", "Return installs it again (or opens its Microsoft Store page)")));
+                // A managed PC (domain, Entra ID, Intune) gets its commands through the push routing service,
+                // reports through telemetry and gets updates as the organisation set: those stay.
                 if (!m.Managed)
                     s.AddRange(new[]
                     {
+                        Step(wer, "1", () => L.T("После сбоев программ Windows не собирает и не отправляет отчёты — меньше нагрузки на диск", "After crashes Windows does not collect and send reports — less disk load")),
                         Step(diag, "disabled", () => L.T("Постоянно собирает и отправляет данные: лишняя нагрузка на диск и сеть", "Keeps collecting and sending data: extra disk and network load")),
                         Step(wap, "disabled", () => L.T("Нужна только компьютерам, которыми управляет организация (Intune)", "Only needed on PCs an organisation manages (Intune)")),
                         Step(tasks, "0", () => L.T("Совместимость и сбор данных: периодически грузят процессор и диск на минуты", "Compatibility and data collection: now and then load the processor and disk for minutes")),
+                        Step(doPeers, "0", () => L.T("Windows не раздаёт скачанные обновления другим компьютерам — сеть и диск не заняты в фоне", "Windows does not upload updates to other PCs — network and disk stay free")),
                     });
                 return s;
             };
             // Distributed link tracking: only domain networks use it.
             Func<Machine, TuneStep> linksStep = m => m.Managed ? null : Step(links, "manual", () => L.T("Нужна только в сетях с доменом", "Only needed on domain networks"));
+            // Windows 11 has no global switch for Store apps in the background any more, only this policy.
+            Func<Machine, TuneStep> bgStep = m => m.Windows11
+                ? Opt(bgPolicy, "0", () => L.T("Приложения из Store (почта, погода, Xbox, телефон) не работают в фоне, пока закрыты", "Store apps (mail, weather, Xbox, phone) do not run in the background while closed"),
+                    () => L.T("их уведомления, будильники и синхронизация — только пока они открыты", "their notifications, alarms and sync work only while they are open"))
+                : Opt(bgApps, "1", () => L.T("Приложения из Store не работают в фоне", "Store apps do not run in the background"), () => L.T("их уведомления не придут", "their notifications stop"));
 
             Modes.Add(new TuneMode
             {
                 Id = "games", Glyph = "\uE7FC",
                 Name = () => L.T("Игры", "Games"),
-                Desc = () => L.T("Максимум скорости: больше энергии и тепла", "Top speed: more power and heat"),
+                Desc = () => L.T("Максимальная производительность", "Maximum performance"),
                 StartupOff = new[] { 1, 2 }, StartupOffer = new[] { 3 },
                 Steps = m =>
                 {
@@ -433,7 +514,8 @@ namespace DriveUp
                             : Step(power, "perf", () => L.T("Частоты не сбрасываются посреди игры", "Clocks stay up mid-game")),
                         Step(boost, pw("2"), () => L.T("Процессор разгоняется сразу и до предела", "The processor boosts right away and all the way") + onMains()),
                         Step(minState, pw("100"), () => L.T("Без падения частоты между кадрами — меньше микрофризов", "No clock drops between frames — fewer micro-stutters") + onMains()),
-                        Step(cores, pw("100"), () => L.T("Все ядра всегда наготове, без задержки на пробуждение", "All cores always ready, no wake-up delay") + onMains()),
+                        // Ryzen 9 X3D: AMD's driver parks the die without the extra cache during games — leave parking to it.
+                        m.DualCcdX3D ? null : Step(cores, pw("100"), () => L.T("Все ядра всегда наготове, без задержки на пробуждение", "All cores always ready, no wake-up delay") + onMains()),
                         Step(epp, pw("0"), () => L.T("Процессор выбирает скорость, а не экономию", "The processor favours speed over saving") + onMains()),
                         Step(aspm, pw("0"), () => L.T("Видеокарта и NVMe не ждут выхода линии PCIe из сна", "Graphics card and NVMe skip PCIe link wake-up delays") + onMains()),
                         Step(usb, pw("0"), () => L.T("Мышь и гарнитура не засыпают — без пропусков ввода", "Mouse and headset never doze — no missed input") + onMains()),
@@ -444,11 +526,12 @@ namespace DriveUp
                                 () => L.T("проверьте игры после перезагрузки", "check your games after a restart"))
                             : Opt(hags, "1", () => L.T("Меньше задержка кадра — видеокарта это поддерживает", "Lower frame latency — the graphics card supports it"),
                                 () => L.T("со старыми драйверами бывают сбои", "old drivers may misbehave")),
-                        Step(vrr, "1", () => L.T("Плавнее в играх без своей поддержки G-Sync / FreeSync", "Smoother in games without their own G-Sync / FreeSync support")),
+                        Step(vrr, "1", () => L.T("Плавнее в играх без своей поддержки G-Sync / FreeSync (если монитор умеет VRR)", "Smoother in games without their own G-Sync / FreeSync support (on a VRR monitor)")),
                         Opt(capture, "1", () => L.T("Game Bar не держит запись наготове", "Game Bar keeps no recording ready"),
                             () => L.T("не будет записи и скриншотов Game Bar", "no Game Bar clips or screenshots")),
                         Step(windowed, "1", () => L.T("Меньше задержка в играх в окне и без рамки", "Lower latency in windowed and borderless games")),
                         Step(mouse, "0", () => L.T("Прицел движется ровно как рука", "Aim moves exactly as your hand does")),
+                        Step(hotkeys, "0", () => L.T("Пять нажатий Shift не свернут игру окном «Залипание клавиш»", "Pressing Shift five times will not pull you out of the game with a Sticky Keys prompt")),
                         Step(anim, "0", () => L.T("Окна и меню открываются мгновенно", "Windows and menus open instantly")),
                         Step(menu, "100", () => L.T("Подменю открываются без паузы", "Submenus open without a pause")),
                         Step(glass, "0", () => L.T("Меньше работы видеокарте в интерфейсе", "Less work for the graphics card in the interface")),
@@ -457,6 +540,7 @@ namespace DriveUp
                                 ? L.T("Индексирование нагружает жёсткий диск", "Indexing keeps the hard disk busy")
                                 : L.T("Нет фонового индексирования", "No background indexing"),
                             () => L.T("поиск файлов медленнее", "file search gets slower")),
+                        bgStep(m),
                         Step(fast, "0", () => L.T("Каждое включение — чистый запуск драйверов, меньше сбоев", "Every power-on is a clean driver start, fewer glitches")),
                         new TuneStep
                         {
@@ -464,17 +548,16 @@ namespace DriveUp
                             Reason = () => L.T("Совет Microsoft для игр: +5–10 % кадров", "Microsoft's gaming tip: 5–10 % more frames"),
                             Warn = () => L.T("слабее защита; некоторые античиты её требуют", "weaker protection; some anti-cheats need it"),
                         },
+                        Step(hours, "8-23", () => L.T("Windows не перезагрузится для обновлений с 8 до 23 — в игровое время", "Windows will not restart for updates between 8:00 and 23:00 — while you play")),
                     };
                     if (m.AnyHdd) s.Add(Step(disk, pw("0"), () => L.T("Диск не останавливается — без подвисаний при загрузке", "The disk never stops — no hitches while loading")));
                     // Desktops: background programs (voice chat, streaming) are not slowed down to save power.
                     if (!m.Mobile) s.Add(Step(throttle, "1", () => L.T("Фоновые программы (голосовой чат, стрим) не замедляются ради экономии", "Background programs (voice chat, streaming) are not slowed to save power")));
                     if (!m.Mobile) s.Add(HibernationStep(hiber));
                     if (m.SystemSsd) s.Add(Step(delay, "1", () => L.T("Программы автозагрузки стартуют сразу, без искусственной паузы", "Startup programs start at once, without the built-in pause")));
-                    if (!m.Windows11) s.Add(Opt(bgApps, "1", () => L.T("Приложения из Store не работают в фоне", "Store apps do not run in the background"), () => L.T("их уведомления не придут", "their notifications stop")));
                     // SysMain also runs memory compression: keep it where memory is tight or the drive is slow.
                     if (m.SystemSsd && m.RamGb >= 15.5)
                         s.Add(Step(sysMain, "disabled", () => L.T("На SSD и ", "On an SSD with ") + Math.Round(m.RamGb) + L.T(" ГБ памяти предзагрузка почти не нужна", " GB of memory preloading is hardly needed")));
-                    s.Add(Step(noReboot, "1", () => L.T("Обновления не перезагрузят компьютер посреди игры", "Updates will not restart the PC mid-game")));
                     s.Add(Opt(pause, "1", () => L.T("Неделю без скачивания и установки обновлений в фоне", "A week without updates downloading and installing in the background"),
                         () => L.T("обновления безопасности тоже подождут", "security updates wait too")));
                     s.AddRange(common(m));
@@ -498,9 +581,15 @@ namespace DriveUp
                         Step(record, "0", () => L.T("Фоновая запись видео в работе не нужна", "Background video recording is not needed for work")),
                         Step(fast, "0", () => L.T("Чистый запуск при каждом включении: обновления и драйверы применяются полностью", "A clean start every time: updates and drivers apply fully")),
                         Step(hours, "8-20", () => L.T("Windows не перезагрузится для обновлений посреди рабочего дня", "Windows will not restart for updates mid-workday")),
+                        Step(restartNote, "1", () => L.T("Windows заранее предупредит о перезагрузке — успеете сохранить работу", "Windows warns before restarting — time to save your work")),
                         Step(menu, "100", () => L.T("Подменю открываются без паузы", "Submenus open without a pause")),
-                        Step(noReboot, "1", () => L.T("Обновления не перезагрузят компьютер, пока вы работаете", "Updates will not restart the PC while you work")),
+                        Opt(separate, "1", () => L.T("Сбой в окне папки не перезапускает панель задач и рабочий стол", "A crash in a folder window does not take the taskbar and desktop down"), null),
                     };
+                    // Desktops: docks, audio interfaces and printers are not cut off to save power (laptops keep theirs).
+                    if (!m.Mobile) s.Add(Step(usb, "0,0", () => L.T("USB-устройства (док-станции, звуковые карты, принтеры) не отключаются ради экономии — меньше обрывов", "USB devices (docks, audio interfaces, printers) are not switched off to save power — fewer dropouts")));
+                    if (!m.Mobile && m.AnyHdd)
+                        s.Add(Opt(disk, "0,0", () => L.T("Жёсткий диск не останавливается — файлы открываются без паузы на раскрутку", "The hard disk never stops — files open without waiting for spin-up"),
+                            () => L.T("диск постоянно крутится: чуть больше шума и энергии", "the disk keeps spinning: a little more noise and power")));
                     if (m.SystemSsd) s.Add(Step(delay, "1", () => L.T("Программы автозагрузки стартуют сразу", "Startup programs start at once")));
                     if (!m.Mobile) s.Add(HibernationStep(hiber));
                     s.AddRange(common(m));
@@ -524,14 +613,24 @@ namespace DriveUp
                             (m.Mobile ? L.T(" (от сети; от батареи решает Windows)", " (on mains; on battery Windows decides)") : "")),
                         Step(epp, m.Mobile ? "60,*" : "60,60", () => L.T("Процессор выбирает экономию", "The processor favours saving") +
                             (m.Mobile ? L.T(" (от сети)", " (on mains)") : "")),
+                        // The one battery-side value DriveUP offers: when Windows' own Energy saver starts (as in Settings).
+                        m.Mobile ? Opt(saver, "*,100", () => L.T("Экономия энергии Windows работает всё время от батареи: меньше фоновой активности — дольше без зарядки", "Windows Energy saver is on whenever on battery: less background activity, longer between charges"),
+                            () => L.T("от батареи экран чуть темнее, почта и приложения синхронизируются реже", "on battery the screen is a bit dimmer and mail and apps sync less often")) : null,
+                        m.Mobile ? Step(searchBattery, "1", () => L.T("От батареи поиск не индексирует файлы — ждёт зарядки", "On battery search does not index files — it waits for the charger")) : null,
+                        Opt(wake, m.Mobile ? "0,*" : "0,0", () => L.T("Компьютер не просыпается сам ночью ради обслуживания и обновлений", "The PC does not wake itself at night for maintenance and updates") +
+                                (m.Mobile ? L.T(" (от сети)", " (on mains)") : ""),
+                            () => L.T("обслуживание и обновления пройдут, когда вы включите компьютер", "maintenance and updates run when you turn the PC on")),
                         Step(record, "0", () => L.T("Запись видео в фоне — лишняя нагрузка", "Background video recording is extra load")),
                         Step(glass, "0", () => L.T("Меньше работы видеокарте", "Less work for the graphics card")),
                         linksStep(m),
                         Opt(search, "disabled", () => L.T("Нет фонового индексирования — диск и процессор отдыхают", "No background indexing — disk and processor rest"), () => L.T("поиск файлов медленнее", "file search gets slower")),
+                        bgStep(m),
                     };
+                    if (!m.Mobile && m.AnyHdd)
+                        s.Add(Opt(disk, "300,300", () => L.T("Жёсткий диск останавливается через 5 минут простоя — тише", "The hard disk stops after 5 idle minutes — quieter"),
+                            () => L.T("первое обращение к диску ждёт раскрутки 2–5 с", "the first access waits 2–5 s for spin-up")));
                     if (m.SystemSsd && m.RamGb >= 15.5)
                         s.Add(Step(sysMain, "disabled", () => L.T("Меньше фоновой работы диска", "Less background disk work")));
-                    if (!m.Windows11) s.Add(Opt(bgApps, "1", () => L.T("Приложения из Store не работают в фоне", "Store apps do not run in the background"), () => L.T("их уведомления не придут", "their notifications stop")));
                     s.AddRange(common(m));
                     return s;
                 },
@@ -612,6 +711,7 @@ namespace DriveUp
             {
                 bool off = mode.StartupOff.Contains(x.Level), offer = mode.StartupOffer.Contains(x.Level) || x.Level == 3;
                 if (!off && !offer) continue;
+                if (x.Modes != null && !x.Modes.Contains(mode.Id)) continue;
                 try { if (!x.When(m) || !x.Tweak.Available(m)) continue; }
                 catch { continue; }
                 steps.Add(new TuneStep { Tweak = x.Tweak, Value = x.Value, Reason = x.Reason, Optional = !off || x.Warn != null, Warn = x.Warn });

@@ -110,12 +110,199 @@ namespace DriveUp
     /// <summary>System Restore points (client Windows only; Windows Server has no System Restore).</summary>
     static class SysRestore
     {
+        /// <summary>Set once Create found that this Windows has no System Restore (Server): nothing to ask about then.</summary>
+        public static bool Unsupported;
+
+        const string Policy = @"SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore";
+        /// <summary>The volumes System Protection is on for: "\\?\Volume{…}\:(C%3A)" per volume, under the System Restore client.</summary>
+        const string Clients = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SPP\Clients", SrClient = "{09F7EDC5-294E-4180-AF6A-FB0E6A0E9513}";
+
+        static string SystemDrive { get { return System.IO.Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows)); } }
+
+        static object Machine(string path, string name)
+        {
+            try
+            {
+                using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64))
+                using (var k = hklm.OpenSubKey(path))
+                    return k == null ? null : k.GetValue(name);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Turned off by an organisation's policy: nothing DriveUP should change.</summary>
+        static bool OffByPolicy
+        {
+            get { return Convert.ToInt32(Machine(Policy, "DisableSR") ?? 0) == 1 || Convert.ToInt32(Machine(Policy, "DisableConfig") ?? 0) == 1; }
+        }
+
+        /// <summary>System Protection is known to be off for the system drive (false when it is on or cannot be told).</summary>
+        static bool ProtectionOff
+        {
+            get
+            {
+                string[] list;
+                try
+                {
+                    using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64))
+                    using (var k = hklm.OpenSubKey(Clients))
+                    {
+                        // No such key (Windows Server): cannot be told.
+                        if (k == null) return false;
+                        list = k.GetValue(SrClient) as string[];
+                    }
+                }
+                catch { return false; }
+                if (list == null || list.All(string.IsNullOrWhiteSpace)) return true;
+                // Entries end with the drive letter, "(C%3A)"; a format without it cannot be told apart.
+                if (!list.Any(x => x.IndexOf("%3A)", StringComparison.OrdinalIgnoreCase) >= 0)) return false;
+                string letter = SystemDrive.Substring(0, 1);
+                return !list.Any(x => x.IndexOf("(" + letter + "%3A)", StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+        }
+
+        static bool ServiceDisabled(string name)
+        {
+            return Convert.ToInt32(Machine(@"SYSTEM\CurrentControlSet\Services\" + name, "Start") ?? 3) == 4;
+        }
+
+        /// <summary>A failure in words, with the code to look up when it is not a known one.</summary>
+        static string Explain(uint code)
+        {
+            switch (code)
+            {
+                case 1058: case 0x8007041D:
+                    return ServiceDisabled("VSS") ? VssOff() : L.T("защита системы выключена", "System Protection is turned off");
+                case 0x80070422: return VssOff();
+                case 1460: case 0x800705B4: return L.T("Windows не успела создать точку — диск занят, попробуйте ещё раз", "Windows ran out of time creating the point — the disk is busy, try again");
+                case 112: case 0x80070070: return L.T("на системном диске не хватает места", "the system drive is out of space");
+                case 0x8004231F: case 0x80042317:
+                    return L.T("не хватает места, отведённого под точки восстановления (Свойства системы → Защита системы → Настроить)",
+                               "not enough space set aside for restore points (System Properties → System Protection → Configure)");
+                case 0x80042316: return L.T("Windows уже создаёт другую точку — попробуйте через пару минут", "Windows is already creating another point — try again in a couple of minutes");
+                case 0x80042302: case 0x80042306: case 0x8004230F:
+                    return L.T("служба теневого копирования (VSS) сообщила об ошибке 0x", "the Volume Shadow Copy service (VSS) reported error 0x") + code.ToString("X8") +
+                           L.T(" — обычно помогает перезагрузка", " — a restart usually helps");
+            }
+            return L.T("Windows вернула ошибку 0x", "Windows returned error 0x") + code.ToString("X8");
+        }
+
+        static string VssOff()
+        {
+            return L.T("служба «Теневое копирование тома» отключена — без неё Windows не создаёт точки", "the Volume Shadow Copy service is disabled — Windows needs it for restore points");
+        }
+
+        /// <summary>WMI's own "Generic failure" says nothing: look for the usual reasons first.</summary>
+        static string Explain(ManagementException ex)
+        {
+            if (OffByPolicy) return L.T("восстановление системы отключено политикой организации", "System Restore is turned off by your organisation's policy");
+            if (ProtectionOff) return L.T("защита системы выключена", "System Protection is turned off");
+            if (ServiceDisabled("VSS") || ServiceDisabled("swprv")) return VssOff();
+            if (ex.ErrorCode == ManagementStatus.AccessDenied) return L.T("нужны права администратора", "administrator rights are needed");
+            return L.T("сбой службы восстановления системы (WMI ", "System Restore service failure (WMI ") + ex.ErrorCode + ")";
+        }
+
         /// <summary>
         /// Asks for a restore point. <paramref name="ok"/> is true when one protects the change (made now,
         /// or made earlier today: Windows creates at most one a day). The text explains anything unusual.
         /// </summary>
-        /// <summary>Set once Create found that this Windows has no System Restore (Server): nothing to ask about then.</summary>
-        public static bool Unsupported;
+        public static string Create(string description, out bool ok)
+        {
+            ok = false;
+            try
+            {
+                var scope = new ManagementScope(@"\\.\root\default");
+                DateTime lastBefore;
+                uint before = Newest(scope, out lastBefore);
+                using (var mc = new ManagementClass(scope, new ManagementPath("SystemRestore"), null))
+                {
+                    var args = mc.GetMethodParameters("CreateRestorePoint");
+                    // At most 64 characters are kept.
+                    args["Description"] = description.Length > 64 ? description.Substring(0, 64) : description;
+                    args["RestorePointType"] = 10;   // DEVICE_DRIVER_INSTALL
+                    args["EventType"] = 100;         // BEGIN_SYSTEM_CHANGE, as Checkpoint-Computer
+                    var outp = mc.InvokeMethod("CreateRestorePoint", args, null);
+                    uint rv = Convert.ToUInt32(outp["ReturnValue"]);
+                    if (rv != 0) return Explain(rv);
+                }
+                DateTime lastAfter;
+                uint after = Newest(scope, out lastAfter);
+                if (after > before) { ok = true; return null; }
+                if (before > 0 && DateTime.Now - lastBefore < TimeSpan.FromHours(24))
+                {
+                    ok = true;
+                    return L.T("новую точку Windows не создала — действует точка от ", "Windows made no new point — the one from ") + lastBefore.ToString("g") +
+                           L.T(" (не чаще раза в сутки)", " still applies (one a day at most)");
+                }
+                if (ProtectionOff) return L.T("защита системы выключена", "System Protection is turned off");
+                return L.T("Windows не создала точку восстановления", "Windows did not create a restore point");
+            }
+            catch (ManagementException ex)
+            {
+                if (ex.ErrorCode == ManagementStatus.InvalidClass || ex.ErrorCode == ManagementStatus.InvalidNamespace || ex.ErrorCode == ManagementStatus.NotFound)
+                {
+                    Unsupported = true;
+                    return L.T("в этой Windows нет восстановления системы", "this Windows has no System Restore");
+                }
+                return Explain(ex);
+            }
+            catch (UnauthorizedAccessException) { return L.T("нужны права администратора", "administrator rights are needed"); }
+            catch (System.Runtime.InteropServices.COMException ex) { return Explain(unchecked((uint)ex.ErrorCode)); }
+            catch (Exception ex) { return ex.Message; }
+        }
+
+        /// <summary>Turns System Protection on for the system drive (as Enable-ComputerRestore does). Null when done.</summary>
+        static string EnableProtection()
+        {
+            try
+            {
+                var scope = new ManagementScope(@"\\.\root\default");
+                using (var mc = new ManagementClass(scope, new ManagementPath("SystemRestore"), null))
+                {
+                    var args = mc.GetMethodParameters("Enable");
+                    args["Drive"] = SystemDrive;
+                    args["WaitTillEnabled"] = true;
+                    uint rv = Convert.ToUInt32(mc.InvokeMethod("Enable", args, null)["ReturnValue"]);
+                    return rv == 0 ? null : Explain(rv);
+                }
+            }
+            catch (ManagementException ex) { return Explain(ex); }
+            catch (Exception ex) { return ex.Message; }
+        }
+
+        /// <summary>
+        /// After Create failed. Where System Protection is simply off, offers to turn it on and makes the point;
+        /// otherwise (or if the user says no) asks whether to go on without one. True = go on;
+        /// <paramref name="ok"/> and <paramref name="why"/> then tell how it ended.
+        /// </summary>
+        public static bool Resolve(Func<Func<bool>, bool> onUi, IWin32Window owner, string description, ref string why, ref bool ok)
+        {
+            if (ok || Unsupported) return true;
+            if (!OffByPolicy && ProtectionOff)
+            {
+                string drive = SystemDrive.TrimEnd('\\');
+                bool yes = onUi(() => ThemedDialog.Confirm(owner, L.T("Защита системы выключена", "System Protection is off"),
+                    L.T("Windows не создаёт точки восстановления, потому что для диска ", "Windows makes no restore points because System Protection is off for drive ") + drive +
+                    L.T(" выключена защита системы (так бывает на новых компьютерах).", " (common on new computers).") + "\n\n" +
+                    L.T("Включить её и создать точку? Windows будет хранить точки на диске ", "Turn it on and create the point? Windows keeps the points on drive ") + drive +
+                    L.T(" и сама удалять старые. Выключить можно в «Свойства системы → Защита системы».", " and removes old ones by itself. It can be turned off under System Properties → System Protection."),
+                    L.T("Включить и создать", "Turn on and create"), "\uE72E", false));
+                if (yes)
+                {
+                    string error = EnableProtection();
+                    if (error == null)
+                    {
+                        bool made;
+                        string note = Create(description, out made);
+                        if (made) { ok = true; why = note; return true; }
+                        why = note;
+                    }
+                    else why = error;
+                }
+            }
+            else if (OffByPolicy) why = L.T("восстановление системы отключено политикой организации", "System Restore is turned off by your organisation's policy");
+            return ContinueWithout(onUi, owner, why);
+        }
 
         /// <summary>
         /// When a wanted restore point could not be made: asks (on the UI thread, waits) whether to go on
@@ -129,50 +316,6 @@ namespace DriveUp
                 L.T("Без неё изменения нельзя будет откатить через «Восстановление системы». Продолжить без точки?",
                     "Without it the changes cannot be rolled back with System Restore. Go on without one?"),
                 L.T("Продолжить", "Go on"), "\uE768", true));
-        }
-
-        public static string Create(string description, out bool ok)
-        {
-            ok = false;
-            try
-            {
-                var scope = new ManagementScope(@"\\.\root\default");
-                DateTime lastBefore;
-                uint before = Newest(scope, out lastBefore);
-                using (var mc = new ManagementClass(scope, new ManagementPath("SystemRestore"), null))
-                {
-                    var args = mc.GetMethodParameters("CreateRestorePoint");
-                    args["Description"] = description;
-                    args["RestorePointType"] = 10;   // DEVICE_DRIVER_INSTALL
-                    args["EventType"] = 100;         // BEGIN_SYSTEM_CHANGE
-                    var outp = mc.InvokeMethod("CreateRestorePoint", args, null);
-                    uint rv = Convert.ToUInt32(outp["ReturnValue"]);
-                    if (rv == 1058) return L.T("защита системы выключена", "System Protection is turned off");
-                    if (rv != 0) return L.T("код ", "code ") + rv;
-                }
-                DateTime lastAfter;
-                uint after = Newest(scope, out lastAfter);
-                if (after > before) { ok = true; return null; }
-                if (before > 0 && DateTime.Now - lastBefore < TimeSpan.FromHours(24))
-                {
-                    ok = true;
-                    return L.T("новую точку Windows не создала — действует точка от ", "Windows made no new point — the one from ") + lastBefore.ToString("g") +
-                           L.T(" (не чаще раза в сутки)", " still applies (one a day at most)");
-                }
-                return L.T("Windows не создала точку восстановления", "Windows did not create a restore point");
-            }
-            catch (ManagementException ex)
-            {
-                if (ex.ErrorCode == ManagementStatus.InvalidClass || ex.ErrorCode == ManagementStatus.InvalidNamespace || ex.ErrorCode == ManagementStatus.NotFound)
-                {
-                    Unsupported = true;
-                    return L.T("в этой Windows нет восстановления системы", "this Windows has no System Restore");
-                }
-                if (ex.ErrorCode == ManagementStatus.AccessDenied) return L.T("нужны права администратора", "administrator rights are needed");
-                return ex.Message;
-            }
-            catch (UnauthorizedAccessException) { return L.T("нужны права администратора", "administrator rights are needed"); }
-            catch (Exception ex) { return ex.Message; }
         }
 
         /// <summary>Sequence number and time of the newest restore point (0 when there is none).</summary>

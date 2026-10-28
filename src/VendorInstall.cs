@@ -218,7 +218,7 @@ namespace DriveUp
                     (silent ? L.T("Установка пройдёт без окон (тихо), как предусмотрел производитель.", "It installs silently, the way the vendor provides.")
                             : L.T("Откроется установщик производителя — пройдите его шаги.", "The vendor's installer opens — follow its steps.")) +
                     (want ? L.T("\nПеред установкой будет создана точка восстановления.", "\nA restore point is made first.") : "");
-                if (!askUi(() => ThemedDialog.Confirm(owner, L.T("Установить драйвер?", "Install the driver?"), text, L.T("Установить", "Install"), "", false)))
+                if (!askUi(() => ThemedDialog.Confirm(owner, L.T("Установить драйвер?", "Install the driver?"), text, L.T("Установить", "Install"), "\uE896", false)))
                 {
                     r.Cancelled = true;
                     r.Message = L.T("отменено", "cancelled");
@@ -229,7 +229,7 @@ namespace DriveUp
                     stage(L.T("точка восстановления…", "restore point…"));
                     bool rpOk;
                     string rpNote = SysRestore.Create("DriveUP: " + L.T("установка драйвера ", "driver install ") + v.Vendor, out rpOk);
-                    if (!rpOk && !SysRestore.ContinueWithout(askUi, owner, rpNote))
+                    if (!SysRestore.Resolve(askUi, owner, "DriveUP: " + L.T("установка драйвера ", "driver install ") + v.Vendor, ref rpNote, ref rpOk))
                     {
                         r.Cancelled = true;
                         r.Message = L.T("отменено: нет точки восстановления", "cancelled: no restore point");

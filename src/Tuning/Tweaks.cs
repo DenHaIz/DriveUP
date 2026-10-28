@@ -36,6 +36,14 @@ namespace DriveUp
         public string SystemDisk = "";
         /// <summary>Any spinning disk in the computer (its idle spin-down matters).</summary>
         public bool AnyHdd;
+        /// <summary>Windows Recall (Copilot+ PCs, 24H2+) is installed: it can save screen snapshots in the background.</summary>
+        public bool Recall;
+
+        /// <summary>
+        /// Ryzen 9 with 3D V-Cache on one of two dies (7900X3D, 7950X3D, 9900X3D, 9950X3D): AMD's driver parks
+        /// the other die's cores during games, so core parking must stay as Windows has it.
+        /// </summary>
+        public bool DualCcdX3D { get { return Regex.IsMatch(Cpu, @"\b(79|99)[05]0X3D\b", RegexOptions.IgnoreCase); } }
 
         public bool Windows11 { get { return Build >= 22000; } }
         /// <summary>
@@ -113,6 +121,9 @@ namespace DriveUp
                 using (var k = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\SecureBiometrics"))
                     m.SecureBiometrics = k != null && Convert.ToInt32(k.GetValue("Enabled", 0)) == 1;
             });
+            // An optional Windows feature: only where it exists (InstallState 1 = enabled).
+            if (m.Build >= 26100)
+                Try(() => Query("SELECT InstallState FROM Win32_OptionalFeature WHERE Name='Recall'", o => { if (Convert.ToInt32(o["InstallState"]) == 1) m.Recall = true; }));
             return m;
         }
 
@@ -812,6 +823,11 @@ namespace DriveUp
         public static readonly Guid UsbSuspend = new Guid("48e6b7a6-50f5-4782-a5d4-53bb8f07e226");
         public static readonly Guid SubDisk = new Guid("0012ee47-9041-4b5d-9b77-535fba8b1442");
         public static readonly Guid DiskIdle = new Guid("6738e2c4-e8a5-4a42-b16a-e040e769756e");
+        public static readonly Guid SubSleep = new Guid("238c9fa8-0aad-41ed-83f4-97be242c8f20");
+        public static readonly Guid WakeTimers = new Guid("bd3b718a-0680-4d9d-8ab2-e1d2b4ac806d");
+        /// <summary>Energy saver (battery saver): the charge level it turns on at, 0 never ... 100 always on battery.</summary>
+        public static readonly Guid SubEnergySaver = new Guid("de830923-a562-41af-a086-e3a2c6bad2da");
+        public static readonly Guid EnergySaverAt = new Guid("e69653ca-cf7f-4f05-aa73-cb833fa90ad4");
 
         static void Check(uint err)
         {
