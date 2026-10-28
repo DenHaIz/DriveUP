@@ -525,28 +525,25 @@ namespace DriveUp
 
         /// <summary>
         /// Newer drivers on vendors' sites: one group per vendor, link rows that open the download page
-        /// (with the user's rights). They are not installed from here: download, then use the Install tab.
+        /// (with the user's rights). When the vendor's feed names the file, the row also has a
+        /// "download and install" button (VendorInstall: vendor's host, hash, signature, confirmation).
         /// </summary>
         List<CatGroup> VendorGroups(List<VendorUpdate> vendors)
         {
             var result = new List<CatGroup>();
             foreach (var grp in vendors.GroupBy(v => v.Vendor).OrderBy(g => g.Key))
             {
-                var items = grp.ToList();
                 string vendor = grp.Key;
                 bool catalog = vendor == "Microsoft";
                 var cg = new CatGroup
                 {
                     Tag = "vendor:" + vendor, Glyph = catalog ? "\uE896" : "\uE774", Expanded = true,
                     Name = () => catalog ? L.T("В каталоге Microsoft Update", "In the Microsoft Update Catalog") : L.T("На сайте ", "On the ") + vendor + L.T("", " site"),
-                    Desc = () => L.Count(items.Count, "драйвер новее", "драйвера новее", "драйверов новее", "newer driver", "newer drivers") +
-                                 (catalog ? L.T("  ·  нажмите, чтобы скачать и установить", "  ·  click to download and install")
-                                          : L.T("  ·  скачайте и перетащите на «Установку»", "  ·  download, then drop it on the Install tab")),
                 };
-                foreach (var v in items)
+                foreach (var v in grp)
                 {
                     var vu = v;
-                    cg.Items.Add(new CatItem
+                    var ci = new CatItem
                     {
                         Tag = vu, Size = 0, Badge = vu.CatalogId.Length > 0 ? L.T("скачать", "download") : L.T("открыть", "open"),
                         Name = () => vu.Title,
@@ -557,11 +554,98 @@ namespace DriveUp
                             if (vu.CatalogId.Length > 0) CatalogSource.Fetch(Host, this, vu.CatalogId, vu.Title, vu.Size);
                             else try { UserShell.OpenUrl(vu.Url); } catch { }
                         },
-                    });
+                    };
+                    if (VendorInstall.Offers(vu))
+                    {
+                        var item = ci;
+                        item.Badge = InstallCaption;
+                        item.Act = () => InstallVendor(vu, item);
+                    }
+                    cg.Items.Add(ci);
                 }
+                var rows = cg.Items;
+                cg.Desc = () => L.Count(rows.Count, "драйвер новее", "драйвера новее", "драйверов новее", "newer driver", "newer drivers") +
+                    (catalog ? L.T("  ·  нажмите, чтобы скачать и установить", "  ·  click to download and install")
+                     : rows.Any(i => i.Act != null) ? L.T("  ·  файл производителя, подпись проверяется; строка — страница на сайте", "  ·  the vendor's own file, signature checked; the row opens its page")
+                     : L.T("  ·  скачайте и перетащите на «Установку»", "  ·  download, then drop it on the Install tab"));
                 result.Add(cg);
             }
             return result;
+        }
+
+        static string InstallCaption { get { return L.T("скачать и установить", "download and install"); } }
+
+        bool vendorWorking;
+
+        /// <summary>"Download and install" of one vendor row: everything on a worker thread, the row's button shows the step.</summary>
+        void InstallVendor(VendorUpdate vu, CatItem item)
+        {
+            if (Busy || vendorWorking) { Host.ShowToast(L.T("Дождитесь окончания проверки или установки", "Wait until the check or install finishes"), ToastKind.Info); return; }
+            if (!Host.CanStartOperation()) return;
+            vendorWorking = true;
+            item.Warn = false;
+            Host.BeginBusy();
+            Host.ShowToast(L.T("Скачиваю: ", "Downloading: ") + vu.Title + (vu.Size > 0 ? " (" + L.Size(vu.Size) + ")" : ""), ToastKind.Info);
+            int lastPercent = -1;
+            long lastBytes = 0;
+            Action<string> stage = s => Post(() => { item.Badge = s; list.Invalidate(); });
+            Action<long, long> progress = (done, total) =>
+            {
+                // A few updates a second at most: per percent, or per 8 MB when the size is unknown.
+                int pc = total > 0 ? (int)(done * 100 / total) : -1;
+                if (total > 0 ? pc == lastPercent : done - lastBytes < (8 << 20)) return;
+                lastPercent = pc;
+                lastBytes = done;
+                string text = total > 0 ? L.T("скачано ", "downloaded ") + pc + " %" : L.Size(done) + "…";
+                Post(() => { item.Badge = text; list.Invalidate(); });
+            };
+            var th = new Thread(() =>
+            {
+                var r = VendorInstall.Run(vu, Host.Window, AskUI, stage, progress);
+                RunUI(() => VendorDone(vu, item, r));
+            }) { IsBackground = true, Name = "vendor install" };
+            th.Start();
+        }
+
+        void VendorDone(VendorUpdate vu, CatItem item, VendorResult r)
+        {
+            vendorWorking = false;
+            Host.EndBusy();
+            item.Badge = InstallCaption;
+            list.Invalidate();
+            if (r.OpenFile != null)
+            {
+                Host.ShowToast(L.T("Архив скачан и проверен — открыт на «Установке»", "The archive is downloaded and checked — opened on the Install tab"), ToastKind.Success);
+                Host.InstallFrom(new[] { r.OpenFile });
+                return;
+            }
+            if (r.Cancelled) { Host.ShowToast(L.T("Установка отменена", "Install cancelled") + (r.Message.Length > 0 ? ": " + r.Message : ""), ToastKind.Info); return; }
+            if (!r.Ok)
+            {
+                item.Warn = true;
+                list.Invalidate();
+                Host.ShowToast(L.T("Не удалось: ", "Failed: ") + r.Message, ToastKind.Error);
+                return;
+            }
+            Host.ShowToast(L.T("Драйвер установлен: ", "Driver installed: ") + vu.Title + (r.Reboot ? L.T(" · нужна перезагрузка", " · restart needed") : ""), ToastKind.Success);
+            // The row leaves the list (its group too, when it was the last one).
+            foreach (var g in vendorCats) g.Items.Remove(item);
+            vendorCats = vendorCats.Where(g => g.Items.Count > 0).ToList();
+            var shown = cats.Concat(vendorCats).ToList();
+            Transition.CrossFade(list, () => list.SetGroups(shown), 260);
+            UpdateEmpty();
+            UpdateTexts();
+            Host.UpdateStatus();
+            // Versions changed: read the devices again (the Devices tab and the vendor findings follow).
+            var th = new Thread(() =>
+            {
+                Dictionary<string, Bitmap> icons;
+                var devs = Inventory.LoadDevices(out icons);
+                Post(() => Inventory.SetDevices(devs, icons));
+            }) { IsBackground = true };
+            th.SetApartmentState(ApartmentState.STA);
+            th.Start();
+            if (r.Reboot) Anim.Delay(900, AskRestart);
         }
 
         int VendorCount { get { return vendorCats.Where(g => !"runtimes".Equals(g.Tag)).Sum(g => g.Items.Count); } }

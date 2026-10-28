@@ -60,15 +60,37 @@ namespace DriveUp
                 XmlElement pack = null;
                 if (refNode != null) packs.TryGetValue(refNode.GetAttribute("IdRef"), out pack);
                 string page = pack != null ? Text(pack, "ReleaseNotesUrl") : "";
-                result.Add(new VendorUpdate
+                var v = new VendorUpdate
                 {
                     Vendor = "HP", Device = kv.Key, VersionText = kv.Value.Item2, CurrentText = kv.Key.VersionText,
                     Title = pack != null ? Text(pack, "Name") : Text(e, "FriendlyName"),
                     Date = VendorCheck.ParseDate(Text(e, "DriverDate"), "MM/dd/yyyy"),
                     Url = page.Length > 0 ? "https://" + page.Replace("https://", "").Replace("http://", "") : "https://support.hp.com/drivers",
-                });
+                };
+                if (pack != null) SoftPaq(pack, v);
+                result.Add(v);
             }
             return result;
+        }
+
+        /// <summary>
+        /// The SoftPaq itself: Url (ftp.hp.com, without a scheme), SHA256, Size. SilentInstall is the command
+        /// HP Image Assistant runs inside the unpacked SoftPaq (the same as in its CVA file); silent only when
+        /// it names a program in the package (not "Not support" and the like).
+        /// </summary>
+        static void SoftPaq(XmlElement pack, VendorUpdate v)
+        {
+            string url = Text(pack, "Url"), hash = Text(pack, "SHA256");
+            if (url.Length == 0 || !System.Text.RegularExpressions.Regex.IsMatch(hash, "^[0-9A-Fa-f]{64}$")) return;
+            url = "https://" + System.Text.RegularExpressions.Regex.Replace(url, "^[a-z]+://", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!VendorInstall.Allowed("HP", url) || !VendorInstall.FileName(url).EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return;
+            v.FileUrl = url;
+            v.FileHash = hash;
+            v.HashKind = "SHA256";
+            long size;
+            if (long.TryParse(Text(pack, "Size"), out size)) v.Size = size;
+            string silent = Text(pack, "SilentInstall");
+            if (VendorInstall.InnerCommand(silent) != null) v.SilentArgs = silent;
         }
 
         /// <summary>This Windows release first, then the ones HP lists for the board (newest first).</summary>
@@ -170,15 +192,40 @@ namespace DriveUp
                 string name = "";
                 foreach (XmlElement n in sc.GetElementsByTagName("Name")) { name = n.InnerText.Trim(); break; }
                 DateTime date;
-                result.Add(new VendorUpdate
+                var v = new VendorUpdate
                 {
                     Vendor = "Dell", Device = kv.Key, VersionText = kv.Value.Item2, CurrentText = kv.Key.VersionText, Title = name,
                     Date = DateTime.TryParse(sc.GetAttribute("releaseDate"), CultureInfo.InvariantCulture, DateTimeStyles.None, out date) ? (DateTime?)date : null,
                     Url = page.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && new Uri(page).Host.EndsWith("dell.com", StringComparison.OrdinalIgnoreCase)
                         ? page : "https://www.dell.com/support/home/?app=drivers",
-                });
+                };
+                Package(sc, v);
+                result.Add(v);
             }
             return result;
+        }
+
+        /// <summary>
+        /// The Dell Update Package: downloads.dell.com/{path}, its SHA-256 (Cryptography/Hash) or, in older
+        /// catalogs, hashMD5. Dell Update Packages install silently with /s (exit code 2 = restart needed).
+        /// </summary>
+        static void Package(XmlElement sc, VendorUpdate v)
+        {
+            string path = sc.GetAttribute("path");
+            if (path.Length == 0 || path.Contains("..") || path.Contains(":") || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return;
+            string url = Host + path.TrimStart('/');
+            if (!VendorInstall.Allowed("Dell", url)) return;
+            string sha = "", md5 = sc.GetAttribute("hashMD5");
+            foreach (XmlElement h in sc.GetElementsByTagName("Hash"))
+                if (h.GetAttribute("algorithm").Equals("SHA256", StringComparison.OrdinalIgnoreCase)) sha = h.InnerText.Trim();
+            if (System.Text.RegularExpressions.Regex.IsMatch(sha, "^[0-9A-Fa-f]{64}$")) { v.FileHash = sha; v.HashKind = "SHA256"; }
+            else if (System.Text.RegularExpressions.Regex.IsMatch(md5, "^[0-9A-Fa-f]{32}$")) { v.FileHash = md5; v.HashKind = "MD5"; }
+            else return;
+            v.FileUrl = url;
+            long size;
+            if (long.TryParse(sc.GetAttribute("size"), out size)) v.Size = size;
+            v.SilentArgs = "/s";
+            v.OkCodes = new[] { 0, 2 };
         }
 
         /// <summary>PCI\VEN_x&amp;DEV_y[&amp;SUBSYS_ss] and USB\VID_x&amp;PID_y the package names.</summary>
