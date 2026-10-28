@@ -303,6 +303,95 @@ namespace DriveUp
         }
     }
 
+    /// <summary>
+    /// Machine policies written the way gpedit.msc writes them: into the local Group Policy
+    /// (Registry.pol), which the Group Policy service then applies. Windows 11 protects some policy
+    /// values (UCPD.sys: e.g. Dsh\AllowNewsAndInterests) so that only Microsoft-signed programs can
+    /// write them, even an administrator's; the Group Policy service is one of those.
+    /// </summary>
+    static class LocalPolicy
+    {
+        [ComImport, Guid("EA502723-A23D-11d1-A7D3-0000F87571E3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IGroupPolicyObject
+        {
+            void New([MarshalAs(UnmanagedType.LPWStr)] string domain, [MarshalAs(UnmanagedType.LPWStr)] string name, uint flags);
+            void OpenDSGPO([MarshalAs(UnmanagedType.LPWStr)] string path, uint flags);
+            void OpenLocalMachineGPO(uint flags);
+            void OpenRemoteMachineGPO([MarshalAs(UnmanagedType.LPWStr)] string computer, uint flags);
+            void Save([MarshalAs(UnmanagedType.Bool)] bool machine, [MarshalAs(UnmanagedType.Bool)] bool add,
+                      [MarshalAs(UnmanagedType.LPStruct)] Guid extension, [MarshalAs(UnmanagedType.LPStruct)] Guid snapin);
+            void Delete();
+            void GetName([MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder name, int max);
+            void GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder name, int max);
+            void SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string name);
+            void GetPath([MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder path, int max);
+            void GetDSPath(uint section, [MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder path, int max);
+            void GetFileSysPath(uint section, [MarshalAs(UnmanagedType.LPWStr)] System.Text.StringBuilder path, int max);
+            void GetRegistryKey(uint section, out IntPtr key);
+        }
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        static extern bool RefreshPolicyEx(bool machine, uint options);
+
+        static readonly Guid GroupPolicyObject = new Guid("EA502722-A23D-11d1-A7D3-0000F87571E3");
+        static readonly Guid RegistryExtension = new Guid("35378EAC-683F-11D2-A89A-00C04FBBCFA2");
+        static readonly Guid PolicySnapin = new Guid("8FC0B734-A0E1-11d1-A7D3-0000F87571E3");
+        const uint LoadRegistry = 1, MachineSection = 2, Force = 1;
+
+        /// <summary>Whether this Windows has the local Group Policy (not Home editions).</summary>
+        public static bool Available
+        {
+            get
+            {
+                try
+                {
+                    using (var k = Registry.ClassesRoot.OpenSubKey(@"CLSID\{" + GroupPolicyObject + @"}\InProcServer32")) return k != null;
+                }
+                catch { return false; }
+            }
+        }
+
+        /// <summary>Sets (value) or removes (null: "not configured") a machine policy DWORD and has Windows apply it now.</summary>
+        public static void SetDword(string path, string name, int? value)
+        {
+            Exception error = null;
+            // The Group Policy object is apartment-threaded: its own STA thread, whatever thread asks.
+            var t = new System.Threading.Thread(() =>
+            {
+                IGroupPolicyObject gpo = null;
+                try
+                {
+                    gpo = (IGroupPolicyObject)Activator.CreateInstance(Type.GetTypeFromCLSID(GroupPolicyObject, true));
+                    gpo.OpenLocalMachineGPO(LoadRegistry);
+                    IntPtr h;
+                    gpo.GetRegistryKey(MachineSection, out h);
+                    using (var root = RegistryKey.FromHandle(new Microsoft.Win32.SafeHandles.SafeRegistryHandle(h, true)))
+                    {
+                        if (value != null)
+                            using (var k = root.CreateSubKey(path)) k.SetValue(name, value.Value, RegistryValueKind.DWord);
+                        else
+                            using (var k = root.OpenSubKey(path, true)) if (k != null) k.DeleteValue(name, false);
+                    }
+                    gpo.Save(true, true, RegistryExtension, PolicySnapin);
+                }
+                catch (Exception ex) { error = ex; }
+                finally { if (gpo != null) Marshal.ReleaseComObject(gpo); }
+            });
+            t.SetApartmentState(System.Threading.ApartmentState.STA);
+            t.IsBackground = true;
+            t.Start();
+            t.Join();
+            if (error != null) throw error;
+
+            // Applied by the Group Policy service in the background: wait for the value to arrive.
+            RefreshPolicyEx(true, Force);
+            for (int i = 0; i < 60 && Reg.Dword(true, path, name) != value; i++) System.Threading.Thread.Sleep(250);
+            if (Reg.Dword(true, path, name) != value)
+                throw new InvalidOperationException(L.T("Групповая политика Windows не применилась за 15 секунд — попробуйте ещё раз",
+                                                        "Windows Group Policy did not apply within 15 seconds — try again"));
+        }
+    }
+
     /// <summary>Groups in the list, in the order they are shown and applied.</summary>
     enum TuneCat { Power, Gaming, Interface, Services, Background, Apps, Tasks, Startup, Privacy, System, Updates }
 
@@ -351,6 +440,8 @@ namespace DriveUp
         public Func<Machine, bool> When = m => true;
         /// <summary>Tells Windows about the change (e.g. a settings broadcast) after it is written.</summary>
         public Action Changed;
+        /// <summary>A machine policy Windows protects from direct writes: set through the local Group Policy (see <see cref="LocalPolicy"/>).</summary>
+        public bool ViaPolicy;
 
         public RegSwitch(bool machine, string path, string name, int on, int off)
         {
@@ -365,7 +456,8 @@ namespace DriveUp
 
         public override void Restore(string raw)
         {
-            Reg.Restore(machine, path, name, raw);
+            if (Policy) Write(Reg.RawDword(raw));
+            else Reg.Restore(machine, path, name, raw);
             if (Changed != null) Changed();
         }
 
@@ -380,8 +472,30 @@ namespace DriveUp
 
         public override void Set(string value)
         {
-            Reg.SetDword(machine, path, name, value == "1" ? on : off);
+            if (Policy) Write(value == "1" ? on : off);
+            else Reg.SetDword(machine, path, name, value == "1" ? on : off);
             if (Changed != null) Changed();
+        }
+
+        bool Policy { get { return ViaPolicy && machine && Reg.TestRoot == null; } }
+
+        /// <summary>
+        /// Through the local Group Policy where Windows has it (also how it is put back, so the policy
+        /// file never keeps a value the registry no longer has); Home editions: directly, if Windows lets it.
+        /// </summary>
+        void Write(int? value)
+        {
+            if (LocalPolicy.Available) { LocalPolicy.SetDword(path, name, value); return; }
+            try
+            {
+                if (value != null) Reg.SetDword(true, path, name, value.Value);
+                else Reg.Delete(true, path, name);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException(L.T("Windows защищает этот параметр, а в этом выпуске Windows нет групповой политики, через которую его можно изменить",
+                                                          "Windows protects this setting, and this edition of Windows has no Group Policy to change it through"));
+            }
         }
 
         public override string Describe(string value) { return value == "1" ? OnText() : OffText(); }

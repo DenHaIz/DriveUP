@@ -421,6 +421,15 @@ namespace DriveUp
 
         // ---------- applying ----------
 
+        /// <summary>Why a setting could not be changed, in words: "access denied" while elevated means Windows itself guards it.</summary>
+        static string ErrorText(Exception ex)
+        {
+            if (!(ex is UnauthorizedAccessException || ex is System.Security.SecurityException)) return ex.Message;
+            return SafePath.Elevated
+                ? L.T("Windows не даёт программам менять этот параметр", "Windows does not let programs change this setting")
+                : L.T("Нет доступа — нужны права администратора", "Access denied — administrator rights needed");
+        }
+
         void SetWorking(bool on)
         {
             working = on;
@@ -494,8 +503,7 @@ namespace DriveUp
                     catch (Exception ex)
                     {
                         failed++;
-                        string msg = ex is UnauthorizedAccessException || ex is System.Security.SecurityException
-                            ? L.T("Нет доступа — нужны права администратора", "Access denied — administrator rights needed") : ex.Message;
+                        string msg = ErrorText(ex);
                         Post(() => list.SetState(r, TuneState.Failed, msg));
                     }
                 }
@@ -568,7 +576,7 @@ namespace DriveUp
                     catch (Exception ex)
                     {
                         failed++;
-                        string msg = ex.Message;
+                        string msg = ErrorText(ex);
                         Post(() => list.SetState(r, TuneState.Failed, msg));
                     }
                 }

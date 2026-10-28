@@ -267,7 +267,7 @@ namespace DriveUp
 
             // ----- background processes: Windows features and Store apps that run when nobody asked -----
             var widgets = Add(new RegSwitch(true, @"SOFTWARE\Policies\Microsoft\Dsh", "AllowNewsAndInterests", 1, 0)
-            { OnWhenAbsent = () => true, When = m => m.Windows11, OnText = () => L.T("включены", "on"), OffText = () => L.T("выключены", "off") },
+            { OnWhenAbsent = () => true, When = m => m.Windows11, ViaPolicy = true, OnText = () => L.T("включены", "on"), OffText = () => L.T("выключены", "off") },
                 "widgets", TuneCat.Background, "\uE8A1", () => L.T("Виджеты (погода, новости, лента)", "Widgets (weather, news, feed)"));
             widgets.NeedsReboot = true;
             widgets.Processes = new[] { "Widgets", "WidgetService" };
