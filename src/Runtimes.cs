@@ -159,6 +159,23 @@ namespace DriveUp
         /// <summary>A valid Authenticode signature (whole chain, revocation checked) by Microsoft Corporation.</summary>
         public static bool SignedByMicrosoft(string file)
         {
+            string subject = TrustedSigner(file);
+            return subject != null && HasPart(subject, "O", "Microsoft Corporation") && HasPart(subject, "CN", "Microsoft Corporation");
+        }
+
+        /// <summary>True when a certificate subject has this part exactly ("O=Intel Corporation"), case aside.</summary>
+        public static bool HasPart(string subject, string key, string value)
+        {
+            return Regex.IsMatch(subject, @"(^|,\s*)" + key + "=" + Regex.Escape(value) + @"\s*(,|$)", RegexOptions.IgnoreCase) ||
+                   Regex.IsMatch(subject, @"(^|,\s*)" + key + "=\"" + Regex.Escape(value) + "\"\\s*(,|$)", RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>
+        /// The signer's certificate subject when WinVerifyTrust accepts the file's Authenticode signature
+        /// (whole chain, revocation checked); null when it is unsigned, tampered with or not trusted.
+        /// </summary>
+        public static string TrustedSigner(string file)
+        {
             var info = new WINTRUST_FILE_INFO { cbStruct = Marshal.SizeOf(typeof(WINTRUST_FILE_INFO)), pcwszFilePath = file };
             IntPtr pInfo = Marshal.AllocHGlobal(Marshal.SizeOf(info));
             try
@@ -170,19 +187,15 @@ namespace DriveUp
                     dwUnionChoice = 1 /* WTD_CHOICE_FILE */, pFile = pInfo, dwStateAction = 0, dwProvFlags = 0x80 /* WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT */,
                 };
                 var action = new Guid("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");   // WINTRUST_ACTION_GENERIC_VERIFY_V2
-                if (WinVerifyTrust(new IntPtr(-1), ref action, ref data) != 0) return false;
+                if (WinVerifyTrust(new IntPtr(-1), ref action, ref data) != 0) return null;
             }
             finally
             {
                 Marshal.DestroyStructure(pInfo, typeof(WINTRUST_FILE_INFO));
                 Marshal.FreeHGlobal(pInfo);
             }
-            try
-            {
-                var cert = new X509Certificate2(X509Certificate.CreateFromSignedFile(file));
-                return Regex.IsMatch(cert.Subject, @"(^|,\s*)O=Microsoft Corporation(,|$)") && Regex.IsMatch(cert.Subject, @"(^|,\s*)CN=Microsoft Corporation(,|$)");
-            }
-            catch { return false; }
+            try { return new X509Certificate2(X509Certificate.CreateFromSignedFile(file)).Subject; }
+            catch { return null; }
         }
 
         // ---------- installing ----------

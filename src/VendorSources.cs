@@ -34,17 +34,26 @@ namespace DriveUp
                 string latest = VendorCheck.Str(info, "Version");
                 string installed = Marketing(d.VersionText);
                 if (latest.Length == 0 || installed == null || VendorCheck.Compare(latest, installed) <= 0) continue;
-                string name = Uri.UnescapeDataString(VendorCheck.Str(info, "Name").Replace('+', ' '));
-                string page = VendorCheck.Str(info, "DetailsURL");
-                result.Add(new VendorUpdate
-                {
-                    Vendor = "NVIDIA", Device = d, VersionText = latest, CurrentText = installed,
-                    Title = d.Name + (name.Length > 0 ? " — " + name : ""),
-                    Date = VendorCheck.ParseDate(VendorCheck.Str(info, "ReleaseDateTime"), "ddd MMM dd, yyyy", "ddd MMM d, yyyy"),
-                    Url = page.StartsWith("https://www.nvidia.com/", StringComparison.OrdinalIgnoreCase) ? page : "https://www.nvidia.com/en-us/drivers/",
-                });
+                result.Add(Entry(d, info, latest, installed));
             }
             return result;
+        }
+
+        /// <summary>A lookup answer's downloadInfo as a finding: no hash in the feed, the signature is checked; the package installs with -s -noreboot.</summary>
+        public static VendorUpdate Entry(Device d, object info, string latest, string installed)
+        {
+            string name = Uri.UnescapeDataString(VendorCheck.Str(info, "Name").Replace('+', ' '));
+            string page = VendorCheck.Str(info, "DetailsURL"), file = VendorCheck.Str(info, "DownloadURL");
+            return new VendorUpdate
+            {
+                Vendor = "NVIDIA", Device = d, VersionText = latest, CurrentText = installed,
+                Title = d.Name + (name.Length > 0 ? " — " + name : ""),
+                Date = VendorCheck.ParseDate(VendorCheck.Str(info, "ReleaseDateTime"), "ddd MMM dd, yyyy", "ddd MMM d, yyyy"),
+                Url = page.StartsWith("https://www.nvidia.com/", StringComparison.OrdinalIgnoreCase) ? page : "https://www.nvidia.com/en-us/drivers/",
+                FileUrl = VendorInstall.Allowed("NVIDIA", file) ? file : "",
+                SilentArgs = "-s -noreboot",
+                Size = VendorInstall.ParseSize(VendorCheck.Str(info, "DownloadURLFileSize")),
+            };
         }
 
         /// <summary>32.0.15.6094 → 560.94: the last five digits of the last two parts, a dot before the final two.</summary>
@@ -62,6 +71,8 @@ namespace DriveUp
     /// <summary>
     /// AMD Radeon graphics: the release index AMD's own installer reads, then the list of chips
     /// (DEV-REV) each release supports. The site only answers with a Referer from amd.com.
+    /// Page only: the packages (fullbuild) are served only to a request with an amd.com Referer
+    /// (without it drivers.amd.com redirects to "Download incomplete"), and the feed has no hash.
     /// </summary>
     class AmdSource : IVendorSource
     {
@@ -227,16 +238,48 @@ namespace DriveUp
                     topVersion = a1;
                 }
                 if (top == null) continue;
-                string page = VendorCheck.Str(top.Item2, "Url");
-                result.Add(new VendorUpdate
-                {
-                    Vendor = "Intel", Device = d, VersionText = VendorCheck.Str(top.Item3, "Version"), CurrentText = d.VersionText,
-                    Title = Clean(VendorCheck.Str(top.Item2, "Name")),
-                    Date = VendorCheck.ParseDate(VendorCheck.Str(top.Item2, "DisplayReleaseDate"), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                    Url = page.StartsWith("https://www.intel.com/", StringComparison.OrdinalIgnoreCase) ? page : "https://www.intel.com/content/www/us/en/support/detect.html",
-                });
+                result.Add(Entry(d, top.Item2, top.Item3, pc.IsWindows11));
             }
             return result;
+        }
+
+        /// <summary>
+        /// A catalog package as a finding. Its file for 64-bit Windows comes with a SHA-1 hash; the catalog
+        /// allows a silent install for some packages and names the arguments (InstallOptions).
+        /// </summary>
+        public static VendorUpdate Entry(Device d, object pkg, object comp, bool win11)
+        {
+            string page = VendorCheck.Str(pkg, "Url");
+            var v = new VendorUpdate
+            {
+                Vendor = "Intel", Device = d, VersionText = VendorCheck.Str(comp, "Version"), CurrentText = d.VersionText,
+                Title = Clean(VendorCheck.Str(pkg, "Name")),
+                Date = VendorCheck.ParseDate(VendorCheck.Str(pkg, "DisplayReleaseDate"), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                Url = page.StartsWith("https://www.intel.com/", StringComparison.OrdinalIgnoreCase) ? page : "https://www.intel.com/content/www/us/en/support/detect.html",
+            };
+            var file = VendorCheck.Arr(VendorCheck.At(pkg, "Files"))
+                .Where(f => VendorCheck.Arr(VendorCheck.At(f, "OperatingSystems")).Any(os => Is64(os, win11)))
+                .Concat(VendorCheck.Arr(VendorCheck.At(pkg, "Files")).Where(f => VendorCheck.Arr(VendorCheck.At(f, "OperatingSystems")).Any(os => Is64(os, !win11))))
+                .FirstOrDefault();
+            string url = VendorCheck.Str(file, "Url"), hash = VendorCheck.Str(file, "Hash");
+            if (VendorInstall.Allowed("Intel", url) && Regex.IsMatch(hash, "^[0-9A-Fa-f]{40}$"))
+            {
+                v.FileUrl = url;
+                v.FileHash = hash;
+                v.HashKind = "SHA1";
+                long size;
+                if (long.TryParse(VendorCheck.Str(file, "Size"), out size)) v.Size = size;
+                string args = VendorCheck.Str(pkg, "InstallOptions");
+                if (VendorCheck.Str(pkg, "AllowSilentInstallation").Equals("True", StringComparison.OrdinalIgnoreCase) && VendorInstall.SafeArgs(args) && args.Length > 0)
+                    v.SilentArgs = args;
+            }
+            return v;
+        }
+
+        static bool Is64(object os, bool win11)
+        {
+            string s = Convert.ToString(os) ?? "";
+            return s.StartsWith(win11 ? "windows-11" : "windows-10") && s.EndsWith("-64");
         }
         /// <summary>Has a file for 64-bit Windows 10 or 11 (the catalog also keeps Windows 7 packages).</summary>
         static bool ForThisWindows(object pkg)
@@ -344,7 +387,15 @@ namespace DriveUp
 
         static List<VendorUpdate> Package(string url, IList<Device> devices)
         {
-            var doc = Xml(VendorCheck.GetBytes(url));
+            return Package(Xml(VendorCheck.GetBytes(url)), url, devices);
+        }
+
+        /// <summary>
+        /// Newer drivers in one package description (read from url). The installer lies next to it; its
+        /// SHA-256 is in Files/Installer/File/CRC, the silent command in Install/Cmdline, success codes in Install/@rc.
+        /// </summary>
+        public static List<VendorUpdate> Package(XmlDocument doc, string url, IList<Device> devices)
+        {
             var root = doc.DocumentElement;
             if (root == null) return null;
             var list = new List<VendorUpdate>();
@@ -363,15 +414,40 @@ namespace DriveUp
                     foreach (var d in devices.Where(x => x.HasDriver && VendorCheck.HasId(x, id)))
                     {
                         if (VendorCheck.Compare(version, d.VersionText) <= 0 || list.Any(v => v.Device == d)) continue;
-                        list.Add(new VendorUpdate
+                        var found = new VendorUpdate
                         {
                             Vendor = "Lenovo", Device = d, Title = title, VersionText = version, CurrentText = d.VersionText, Date = date,
                             Url = page ?? "https://pcsupport.lenovo.com/",
-                        });
+                        };
+                        Installer(root, folder, found);
+                        list.Add(found);
                     }
                 }
             }
             return list;
+        }
+
+        static void Installer(XmlElement root, string folder, VendorUpdate v)
+        {
+            string name = Text(root.SelectSingleNode("Files/Installer/File/Name")), hash = Text(root.SelectSingleNode("Files/Installer/File/CRC"));
+            if (name == null || !Regex.IsMatch(name, @"^[\w.-]+\.exe$", RegexOptions.IgnoreCase) || hash == null || !Regex.IsMatch(hash, "^[0-9A-Fa-f]{64}$")) return;
+            if (!VendorInstall.Allowed("Lenovo", folder + name)) return;
+            v.FileUrl = folder + name;
+            v.FileHash = hash;
+            v.HashKind = "SHA256";
+            long size;
+            if (long.TryParse(Text(root.SelectSingleNode("Files/Installer/File/Size")), out size)) v.Size = size;
+            // Silent only when the command runs this very installer: "%PACKAGEPATH%\n1abc23w.exe /verysilent /DIR=%PACKAGEPATH%\TMP".
+            var install = root.SelectSingleNode("Install") as XmlElement;
+            string cmd = install != null && install.GetAttribute("type") == "cmd" ? Text(install.SelectSingleNode("Cmdline[@id='EN']")) ?? Text(install.SelectSingleNode("Cmdline")) : null;
+            string head = "%PACKAGEPATH%\\" + name;
+            if (cmd != null && cmd.StartsWith(head, StringComparison.OrdinalIgnoreCase) && (cmd.Length == head.Length || cmd[head.Length] == ' '))
+            {
+                string args = cmd.Substring(head.Length).Trim();
+                if (args.Length > 0 && VendorInstall.SafeArgs(args)) v.SilentArgs = args;
+            }
+            if (install != null)
+                v.OkCodes = install.GetAttribute("rc").Split(',').Select(x => { int n; return int.TryParse(x.Trim(), out n) ? n : int.MinValue; }).Where(n => n != int.MinValue).ToArray();
         }
 
         /// <summary>Lenovo's files start with a byte-order mark: load from bytes, not from a string.</summary>
@@ -405,7 +481,16 @@ namespace DriveUp
             if (!pc.IsAsus || model.Length == 0) return result;
             string url = "https://www.asus.com/support/api/product.asmx/GetPDDrivers?website=global&model=" + Uri.EscapeDataString(model) +
                          "&osid=" + (pc.IsWindows11 ? "52" : "45") + "&pdhashedid=&pdid=";
-            var json = VendorCheck.Json(VendorCheck.Get(url, null, 45000));
+            return Match(VendorCheck.Json(VendorCheck.Get(url, null, 45000)), model, devices);
+        }
+
+        /// <summary>
+        /// Newer drivers in an answer of GetPDDrivers. Each file has its address (DownloadUrl.Global), its
+        /// SHA-256 and, for silent installs, "file.exe%%arguments" in ExeModule.
+        /// </summary>
+        public static List<VendorUpdate> Match(object json, string model, IList<Device> devices)
+        {
+            var result = new List<VendorUpdate>();
             string page = "https://www.asus.com/supportonly/" + Uri.EscapeDataString(model) + "/helpdesk_download/";
             foreach (var group in VendorCheck.Arr(VendorCheck.At(VendorCheck.At(json, "Result"), "Obj")))
                 foreach (var file in VendorCheck.Arr(VendorCheck.At(group, "Files")))   // newest first in each group
@@ -418,16 +503,38 @@ namespace DriveUp
                         foreach (var d in devices.Where(x => x.HasDriver && VendorCheck.HasId(x, id)))
                         {
                             if (result.Any(v => v.Device == d) || VendorCheck.Compare(version, d.VersionText) <= 0) continue;
-                            result.Add(new VendorUpdate
+                            var vu = new VendorUpdate
                             {
                                 Vendor = "ASUS", Device = d, Title = VendorCheck.Str(file, "Title").TrimEnd('.'), VersionText = version,
                                 CurrentText = d.VersionText, Date = VendorCheck.ParseDate(VendorCheck.Str(file, "ReleaseDate"), "yyyy/MM/dd"),
                                 Url = page,
-                            });
+                            };
+                            Installer(file, vu);
+                            result.Add(vu);
                         }
                     }
                 }
             return result;
+        }
+
+        static void Installer(object file, VendorUpdate v)
+        {
+            string url = VendorCheck.Str(VendorCheck.At(file, "DownloadUrl"), "Global"), hash = VendorCheck.Str(file, "sha256");
+            if (!VendorInstall.Allowed("ASUS", url) || !Regex.IsMatch(hash, "^[0-9A-Fa-f]{64}$")) return;
+            string name = VendorInstall.FileName(url);
+            if (!Regex.IsMatch(name, @"\.(exe|zip)$", RegexOptions.IgnoreCase)) return;
+            v.FileUrl = url;
+            v.FileHash = hash;
+            v.HashKind = "SHA256";
+            v.Size = VendorInstall.ParseSize(VendorCheck.Str(file, "FileSize"));
+            // "WirelessLan_..._1.exe%%/SUPPRESSMSGBOXES /VERYSILENT /NORESTART": silent arguments for this very file.
+            string module = VendorCheck.Str(file, "ExeModule");
+            int sep = module.IndexOf("%%", StringComparison.Ordinal);
+            if (sep > 0 && module.Substring(0, sep).Trim().Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                string args = module.Substring(sep + 2).Trim();
+                if (args.Length > 0 && VendorInstall.SafeArgs(args)) v.SilentArgs = args;
+            }
         }
     }
 }

@@ -257,6 +257,11 @@ namespace DriveUp
         public Action Open;
         /// <summary>Shown in the size column instead of a size (link rows: the vendor).</summary>
         public string Badge;
+        /// <summary>
+        /// Link rows: the badge becomes a button that calls this (e.g. "download and install"); the rest
+        /// of the row still calls Open.
+        /// </summary>
+        public Action Act;
     }
 
     class CatGroup
@@ -358,6 +363,7 @@ namespace DriveUp
             expand.Clear();
             sizeIn.Clear();
             hoverObj = null;
+            hoverAct = null;
             foreach (var g in Groups)
             {
                 expand[g] = g.Expanded ? 1 : 0;
@@ -438,7 +444,7 @@ namespace DriveUp
 
         // ---------- hit testing ----------
 
-        enum Part { None, GroupCheck, GroupBody, Item }
+        enum Part { None, GroupCheck, GroupBody, Item, Act }
 
         Part HitTest(Point pt, out object obj)
         {
@@ -456,11 +462,34 @@ namespace DriveUp
                 if (pt.Y >= y && pt.Y < y + block)
                 {
                     int idx = (int)((pt.Y - y) / ItemH);
-                    if (idx >= 0 && idx < g.Items.Count) { obj = g.Items[idx]; return Part.Item; }
+                    if (idx >= 0 && idx < g.Items.Count)
+                    {
+                        var item = g.Items[idx];
+                        obj = item;
+                        if (item.Act != null && !item.Disabled && ActRect(item, y + idx * ItemH, Width - S(10)).Contains(pt)) return Part.Act;
+                        return Part.Item;
+                    }
                 }
                 y += block;
             }
             return Part.None;
+        }
+
+        /// <summary>The button of a row with an Act: its caption (Badge) in a pill at the right end of the row.</summary>
+        RectangleF ActRect(CatItem item, float y, int w)
+        {
+            float bw = MeasureWidth(item.Badge ?? "", Font) + S(24);
+            return new RectangleF(w - S(32) - bw, y + S(6), bw, ItemH - S(12));
+        }
+
+        object hoverAct;
+
+        void SetHoverAct(object item)
+        {
+            if (item == hoverAct) return;
+            if (hoverAct != null) Animate(hover, Tuple.Create(hoverAct, "act"), "ha", 0, 220);
+            if (item != null) Animate(hover, Tuple.Create(item, "act"), "ha", 1, 110);
+            hoverAct = item;
         }
 
         Rectangle ThumbRect()
@@ -498,10 +527,11 @@ namespace DriveUp
             bool onBar = ThumbRect().Width > 0 && e.X >= Width - S(12);
             barHover.To(onBar ? 1 : 0, onBar ? 120 : 260);
             object o = null;
-            if (!onBar) HitTest(e.Location, out o);
+            var part = onBar ? Part.None : HitTest(e.Location, out o);
             var item = o as CatItem;
             if (item != null && item.Disabled) o = null;
             SetHover(o);
+            SetHoverAct(part == Part.Act ? o : null);
             Cursor = o != null ? Cursors.Hand : Cursors.Default;
         }
 
@@ -509,6 +539,7 @@ namespace DriveUp
         {
             base.OnMouseLeave(e);
             SetHover(null);
+            SetHoverAct(null);
             if (!dragging) barHover.To(0, 260);
         }
 
@@ -533,6 +564,11 @@ namespace DriveUp
             var part = HitTest(e.Location, out o);
             var g = o as CatGroup;
             var item = o as CatItem;
+            if (part == Part.Act && item != null)
+            {
+                item.Act();
+                return;
+            }
             if (part == Part.Item && item != null && item.Open != null)
             {
                 item.Open();
@@ -751,6 +787,12 @@ namespace DriveUp
             int x = S(82);
             string name = item.Name();
             int sizeW = S(110);
+            RectangleF act = RectangleF.Empty;
+            if (item.Act != null && !item.Disabled)
+            {
+                act = ActRect(item, y, w);
+                sizeW = Math.Max(sizeW, (int)(w - act.X) - S(40) + S(8));
+            }
             int maxName = w - x - sizeW - S(48);
             TextRenderer.DrawText(g, name, Font, new Rectangle(x, (int)y, maxName, ItemH), text, TextLeft);
             x += Math.Min(maxName, MeasureWidth(name, Font)) + S(10);
@@ -766,7 +808,21 @@ namespace DriveUp
                 TextRenderer.DrawText(g, note, Theme.SmallFont, new Rectangle(x, (int)y, w - sizeW - S(48) - x, ItemH),
                     Anim.Blend(bg, p.TextDim, ex * 0.9f), TextLeft);
 
-            if (!item.Disabled)
+            if (!act.IsEmpty)
+            {
+                // The button: accent outline, filled more as the mouse comes over it.
+                float ha = Get(hover, Tuple.Create((object)item, "act"));
+                using (var path = Theme.RoundRect(act, act.Height / 2))
+                {
+                    using (var b = new SolidBrush(Anim.Blend(bg, Anim.Blend(rowBg, p.Accent, 0.10f + 0.22f * ha), ex)))
+                        g.FillPath(b, path);
+                    using (var pen = new Pen(Anim.Blend(bg, Anim.Blend(p.Border, p.Accent, 0.55f + 0.45f * ha), ex), Math.Max(1f, S(1))))
+                        g.DrawPath(pen, path);
+                }
+                TextRenderer.DrawText(g, item.Badge ?? "", Font, Rectangle.Round(act), Anim.Blend(bg, Anim.Blend(p.Accent, p.Text, ha * 0.5f), ex),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+            }
+            else if (!item.Disabled)
             {
                 float a = item.Size < 0 ? 0.6f : (sizeIn.ContainsKey(item) ? sizeIn[item] : 1f);
                 Color sc = item.Checked ? Anim.Blend(p.TextDim, p.Text, 0.6f) : p.TextDim;

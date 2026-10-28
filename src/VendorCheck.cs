@@ -101,7 +101,10 @@ namespace DriveUp
         }
     }
 
-    /// <summary>A newer driver found on a vendor's site: shown as a link (downloaded by the person, then installed on the Install tab).</summary>
+    /// <summary>
+    /// A newer driver found on a vendor's site: a link to its page, and when the vendor's feed names the
+    /// file itself, "download and install" from here (see VendorInstall).
+    /// </summary>
     class VendorUpdate
     {
         public string Vendor = "", Title = "", VersionText = "", CurrentText = "", Url = "";
@@ -110,6 +113,17 @@ namespace DriveUp
         /// <summary>Microsoft Update Catalog entries: the update ID (downloaded and installed from here), and its size.</summary>
         public string CatalogId = "";
         public long Size;
+        /// <summary>The installer itself, straight from the vendor's feed (https, the vendor's own host); empty = page only.</summary>
+        public string FileUrl = "";
+        /// <summary>The file's hash from the feed (hex) and its kind: SHA256, SHA1 or MD5. Empty when the feed has none.</summary>
+        public string FileHash = "", HashKind = "";
+        /// <summary>
+        /// Arguments the feed gives for a silent install (%PACKAGEPATH% = the download folder); null = run the
+        /// installer with its own windows. HP: the command inside the SoftPaq, run after it is unpacked.
+        /// </summary>
+        public string SilentArgs;
+        /// <summary>Exit codes the feed counts as success (Lenovo lists them); empty = 0, 3010 and 1641.</summary>
+        public int[] OkCodes = new int[0];
     }
 
     /// <summary>One vendor's way of telling the newest driver for the hardware of this PC.</summary>
@@ -310,28 +324,53 @@ namespace DriveUp
             }
         }
 
-        /// <summary>Downloads a file (HTTPS only, up to maxBytes); a partial file is deleted.</summary>
-        public static void DownloadFile(string url, string path, long maxBytes)
+        /// <summary>
+        /// Downloads a file (HTTPS only, up to maxBytes); a partial file is deleted. With allowHost, redirects
+        /// are followed one by one and each address must be HTTPS on an allowed host. progress(done, total or 0).
+        /// </summary>
+        public static void DownloadFile(string url, string path, long maxBytes, Func<Uri, bool> allowHost = null, Action<long, long> progress = null)
         {
-            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) throw new IOException("https only");
-            var rq = (HttpWebRequest)WebRequest.Create(url);
-            rq.UserAgent = Agent;
-            rq.Timeout = 30000;
-            rq.ReadWriteTimeout = 60000;
             try
             {
-                using (var resp = (HttpWebResponse)rq.GetResponse())
-                using (var s = resp.GetResponseStream())
-                using (var f = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
+                var uri = new Uri(url);
+                for (int hop = 0; ; hop++)
                 {
-                    var buf = new byte[1 << 16];
-                    long total = 0;
-                    int n;
-                    while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                    if (uri.Scheme != Uri.UriSchemeHttps) throw new IOException("https only");
+                    if (allowHost != null && !allowHost(uri))
+                        throw new IOException(L.T("ссылка ведёт не на сервер производителя: ", "the link leads off the vendor's server: ") + uri.Host);
+                    var rq = (HttpWebRequest)WebRequest.Create(uri);
+                    rq.UserAgent = Agent;
+                    rq.Timeout = 30000;
+                    rq.ReadWriteTimeout = 60000;
+                    rq.AllowAutoRedirect = allowHost == null;
+                    using (var resp = (HttpWebResponse)rq.GetResponse())
                     {
-                        f.Write(buf, 0, n);
-                        total += n;
-                        if (total > maxBytes) throw new IOException(L.T("файл слишком большой", "the file is too large"));
+                        int code = (int)resp.StatusCode;
+                        if (code >= 300 && code < 400)
+                        {
+                            string next = resp.Headers[HttpResponseHeader.Location];
+                            if (string.IsNullOrEmpty(next) || hop >= 5) throw new IOException(L.T("слишком много перенаправлений", "too many redirects"));
+                            uri = new Uri(uri, next);
+                            continue;
+                        }
+                        long length = resp.ContentLength > 0 ? resp.ContentLength : 0;
+                        if (length > maxBytes) throw new IOException(L.T("файл слишком большой", "the file is too large"));
+                        using (var s = resp.GetResponseStream())
+                        using (var f = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
+                        {
+                            var buf = new byte[1 << 16];
+                            long total = 0;
+                            int n;
+                            while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                            {
+                                f.Write(buf, 0, n);
+                                total += n;
+                                if (total > maxBytes) throw new IOException(L.T("файл слишком большой", "the file is too large"));
+                                if (progress != null) progress(total, length);
+                            }
+                            if (length > 0 && total != length) throw new IOException(L.T("файл скачался не полностью", "the download was cut short"));
+                        }
+                        return;
                     }
                 }
             }
