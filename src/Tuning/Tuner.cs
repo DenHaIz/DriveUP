@@ -695,7 +695,15 @@ namespace DriveUp
             return (int)t.Category * 1000 + (i < 0 ? 999 : i);
         }
 
-        /// <summary>The mode's steps on this computer, startup programs included.</summary>
+        static bool IsSaved(string id)
+        {
+            lock (Settings.Sync) return Settings.TuneSaved.ContainsKey(id);
+        }
+
+        /// <summary>
+        /// The mode's steps on this computer, startup programs included. A setting DriveUP already changed stays
+        /// in even when it is no longer "available" (a removed app): it then shows as already set.
+        /// </summary>
         static List<TuneStep> StepsFor(TuneMode mode, Machine m)
         {
             var steps = mode.Steps(m).Where(s =>
@@ -704,7 +712,7 @@ namespace DriveUp
                 // Laptops: the power mode is changed for mains only, so not while on battery.
                 if (s.Tweak is PowerPlan && m.Mobile && m.OnBattery) return false;
                 if (s.Warn != null) s.Optional = true;
-                try { return s.Tweak.Available(m); }
+                try { return s.Tweak.Available(m) || IsSaved(s.Tweak.Id); }
                 catch { return false; }
             }).ToList();
             foreach (var x in extras)
@@ -712,7 +720,7 @@ namespace DriveUp
                 bool off = mode.StartupOff.Contains(x.Level), offer = mode.StartupOffer.Contains(x.Level) || x.Level == 3;
                 if (!off && !offer) continue;
                 if (x.Modes != null && !x.Modes.Contains(mode.Id)) continue;
-                try { if (!x.When(m) || !x.Tweak.Available(m)) continue; }
+                try { if (!IsSaved(x.Tweak.Id) && (!x.When(m) || !x.Tweak.Available(m))) continue; }
                 catch { continue; }
                 steps.Add(new TuneStep { Tweak = x.Tweak, Value = x.Value, Reason = x.Reason, Optional = !off || x.Warn != null, Warn = x.Warn });
             }
@@ -729,43 +737,29 @@ namespace DriveUp
             return steps;
         }
 
-        /// <summary>What the mode would do on this computer, in groups. Reads the settings: call off the UI thread.</summary>
+        /// <summary>
+        /// What the mode would do on this computer, in groups. Reads the settings: call off the UI thread.
+        /// Only changes: putting settings back is done under "Changed" (what another mode changed and this one
+        /// does not need stays as it is until the user returns it there).
+        /// </summary>
         public static List<TuneRow> Plan(TuneMode mode, Machine m)
         {
             Pc = m;
             var rows = new List<TuneRow>();
             var steps = StepsFor(mode, m);
-            var ids = new HashSet<string>(steps.Select(s => s.Tweak.Id));
-            List<string> saved;
-            lock (Settings.Sync) saved = Settings.TuneSaved.Keys.ToList();
-            var all = steps.Select(s => s.Tweak).Concat(saved.Where(id => !ids.Contains(id)).Select(Find).Where(t => t != null))
-                .GroupBy(t => t.Id).Select(g => g.First()).OrderBy(OrderKey).ToList();
+            var all = steps.Select(s => s.Tweak).GroupBy(t => t.Id).Select(g => g.First()).OrderBy(OrderKey).ToList();
             foreach (var t in all)
             {
-                var step = steps.FirstOrDefault(s => s.Tweak.Id == t.Id);
-                string was = Saved(t.Id);
+                var step = steps.First(s => s.Tweak.Id == t.Id);
                 string now;
                 try { now = t.Current(); }
                 catch { continue; }
-                if (step != null)
+                bool same = t.Matches(now, step.Value);
+                rows.Add(new TuneRow
                 {
-                    bool same = t.Matches(now, step.Value);
-                    rows.Add(new TuneRow
-                    {
-                        Tweak = t, Category = t.Category, Kind = same ? TuneKind.Same : TuneKind.Change, Target = step.Value,
-                        Now = now, To = step.Value, Reason = step.Reason, Checked = !same && !step.Optional && step.Warn == null, Warn = step.Warn,
-                    });
-                }
-                else if (was != null)
-                {
-                    // Another mode changed it, this one does not need it: back to how it was.
-                    string old = t.ValueOf(was);
-                    rows.Add(new TuneRow
-                    {
-                        Tweak = t, Category = t.Category, Kind = TuneKind.Return, Target = old, Now = now, To = old,
-                        Reason = () => L.T("Этому режиму не нужно — вернётся как было до DriveUP", "Not needed here — goes back to how it was before DriveUP"),
-                    });
-                }
+                    Tweak = t, Category = t.Category, Kind = same ? TuneKind.Same : TuneKind.Change, Target = step.Value,
+                    Now = now, To = step.Value, Reason = step.Reason, Checked = !same && !step.Optional && step.Warn == null, Warn = step.Warn,
+                });
             }
             // When the mode switches the plan, values read now are those of the old plan: write them all.
             if (rows.Any(r => r.Tweak is PowerPlan && r.Kind == TuneKind.Change))
@@ -825,8 +819,15 @@ namespace DriveUp
                 var t = Find(kv.Key);
                 if (t == null) continue;
                 var row = new TuneRow { Tweak = t, Category = t.Category, Kind = TuneKind.Changed, Was = t.ValueOf(kv.Value), Checked = false };
-                try { row.Now = t.Current(); }
+                string raw = null;
+                try { raw = t.Capture(); row.Now = t.ValueOf(raw); }
                 catch { row.Now = ""; }
+                // Already exactly as before DriveUP (put back by hand, or gone with its app): nothing to return.
+                if (raw != null && raw == kv.Value)
+                {
+                    Forget(kv.Key);
+                    continue;
+                }
                 string w;
                 if (when.TryGetValue(kv.Key, out w))
                 {

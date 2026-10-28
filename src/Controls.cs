@@ -287,7 +287,31 @@ namespace DriveUp
             Invalidate();
         }
 
-        int GlyphSpace { get { return Theme.HasGlyphs ? S(16) + S(8) : 0; } }
+        int GlyphSpace { get { return Theme.HasGlyphs ? S(20) + S(8) : 0; } }
+
+        static FontFamily glyphFamily;
+
+        /// <summary>
+        /// Tab icons: a little larger than the text and drawn as an outlined shape, so MDL2's hairline strokes
+        /// (the font has no bold) read as heavy as the bold tab names.
+        /// </summary>
+        static void DrawBoldGlyph(Graphics g, string glyph, Rectangle r, Color c)
+        {
+            if (!Theme.HasGlyphs || string.IsNullOrEmpty(glyph)) return;
+            if (glyphFamily == null) glyphFamily = new FontFamily("Segoe MDL2 Assets");
+            using (var path = new GraphicsPath())
+            {
+                path.AddString(glyph, glyphFamily, (int)FontStyle.Regular, 17f * Theme.Scale, PointF.Empty, StringFormat.GenericTypographic);
+                var b = path.GetBounds();
+                using (var m = new Matrix())
+                {
+                    m.Translate((float)Math.Round(r.X + (r.Width - b.Width) / 2f - b.X), (float)Math.Round(r.Y + (r.Height - b.Height) / 2f - b.Y));
+                    path.Transform(m);
+                }
+                using (var brush = new SolidBrush(c)) g.FillPath(brush, path);
+                using (var pen = new Pen(c, 0.85f * Theme.Scale) { LineJoin = LineJoin.Round }) g.DrawPath(pen, path);
+            }
+        }
 
         void Relayout()
         {
@@ -386,7 +410,7 @@ namespace DriveUp
                 int x = r.X + S(16);
                 if (Theme.HasGlyphs)
                 {
-                    DrawGlyph(g, glyphs[i], new Rectangle(x, 0, S(16), r.Height), Anim.Blend(c, p.Accent, s));
+                    DrawBoldGlyph(g, glyphs[i], new Rectangle(x, 0, S(20), r.Height), Anim.Blend(c, p.Accent, s));
                     x += GlyphSpace;
                 }
                 TextDraw.DrawText(g, tabs[i], Font, new Rectangle(x, 0, r.Right - x, r.Height), c, TextLeft);

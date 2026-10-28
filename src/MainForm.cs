@@ -58,7 +58,7 @@ namespace DriveUp
             header.Paint += PaintHeader;
             tabBar.Height = header.Height;
             tabBar.AddTab("", "\uE895");
-            tabBar.AddTab("", "\uE772");
+            tabBar.AddTab("", "\uE7F8");
             tabBar.AddTab("", "\uE896");
             tabBar.AddTab("", "\uE74E");
             tabBar.AddTab("", "\uEC4A");
