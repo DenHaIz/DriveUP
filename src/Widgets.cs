@@ -819,7 +819,7 @@ namespace DriveUp
                     using (var pen = new Pen(Anim.Blend(bg, Anim.Blend(p.Border, p.Accent, 0.55f + 0.45f * ha), ex), Math.Max(1f, S(1))))
                         g.DrawPath(pen, path);
                 }
-                TextRenderer.DrawText(g, item.Badge ?? "", Font, Rectangle.Round(act), Anim.Blend(bg, Anim.Blend(p.Accent, p.Text, ha * 0.5f), ex),
+                TextDraw.DrawText(g, item.Badge ?? "", Font, Rectangle.Round(act), Anim.Blend(bg, Anim.Blend(p.Accent, p.Text, ha * 0.5f), ex),
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
             }
             else if (!item.Disabled)
