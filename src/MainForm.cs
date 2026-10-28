@@ -24,9 +24,7 @@ namespace DriveUp
         readonly DevicesPage devicesPage;
         readonly InstallPage installPage;
         readonly BackupPage backupPage;
-#if PRO
         readonly TunePage tunePage;
-#endif
         readonly Page[] pages;
         int currentTab, busy;
         int titleWidth;
@@ -63,9 +61,7 @@ namespace DriveUp
             tabBar.AddTab("", "\uE772");
             tabBar.AddTab("", "\uE896");
             tabBar.AddTab("", "\uE74E");
-#if PRO
             tabBar.AddTab("", "\uEC4A");
-#endif
             tabBar.SelectedIndexChanged += (s, e) => OnTabChanged();
             themeSwitch = new Segmented(new[] { "", "" }, new[] { "\uE708", "\uE706" }, Theme.Current.IsDark ? 0 : 1);
             themeSwitch.SelectedIndexChanged += (s, e) => OnThemeChanged();
@@ -84,12 +80,8 @@ namespace DriveUp
             devicesPage = new DevicesPage(this);
             installPage = new InstallPage(this);
             backupPage = new BackupPage(this);
-#if PRO
             tunePage = new TunePage(this);
             pages = new Page[] { updatesPage, devicesPage, installPage, backupPage, tunePage };
-#else
-            pages = new Page[] { updatesPage, devicesPage, installPage, backupPage };
-#endif
             foreach (var p in pages)
             {
                 p.Visible = p == updatesPage;
@@ -108,7 +100,7 @@ namespace DriveUp
             footer.Height = S(40);
             status.SetBounds(S(18), 0, S(700), footer.Height);
             btnJournal = new FlatButton("", "\uE81C", ButtonKind.Ghost);
-            btnJournal.SetBaseHeight(30);
+            btnJournal.SetBaseHeight(32);
             btnJournal.Click += (s, e) => JournalForm.ShowFor(this);
             footer.Controls.Add(status);
             footer.Controls.Add(btnJournal);
@@ -133,17 +125,10 @@ namespace DriveUp
         void PaintHeader(object sender, PaintEventArgs e)
         {
             var g = e.Graphics;
-            int size = S(32);
-            Logo.Draw(g, new RectangleF(S(18), (header.Height - size) / 2, size, size), true);
+            int size = S(36);
+            Logo.DrawSharp(g, S(18), (header.Height - size) / 2, size);
             const TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, "DriveUP", Theme.TitleFont, new Rectangle(S(60), 0, titleWidth, header.Height), Theme.Current.Text, flags);
-            if (Edition.Pro)
-            {
-                // "Pro" in the colour of the mark.
-                int x = S(60) + TextRenderer.MeasureText(g, "DriveUP ", Theme.TitleFont, Size.Empty, TextFormatFlags.NoPadding).Width;
-                TextRenderer.DrawText(g, "Pro", Theme.TitleFont, new Rectangle(x, 0, titleWidth, header.Height),
-                    Theme.Current.IsDark ? Anim.Blend(Logo.Mark, Color.White, 0.12f) : Logo.Mark, flags);
-            }
+            TextDraw.DrawText(g, "DriveUP", Theme.TitleFont, new Rectangle(S(64), 0, titleWidth, header.Height), Theme.Current.Text, flags);
         }
 
         // ---------- language ----------
@@ -156,15 +141,12 @@ namespace DriveUp
 
         void ApplyLanguage()
         {
-            Text = Edition.Pro ? L.T("DriveUP Pro — драйверы и настройка системы", "DriveUP Pro — drivers and system tuning")
-                : L.T("DriveUP — обновление и установка драйверов", "DriveUP — driver updates and installs");
+            Text = L.T("DriveUP — драйверы и настройка системы", "DriveUP — drivers and system tuning");
             tabBar.SetTabText(0, L.T("Обновления", "Updates"));
             tabBar.SetTabText(1, L.T("Устройства", "Devices"));
             tabBar.SetTabText(2, L.T("Установка", "Install"));
             tabBar.SetTabText(3, L.T("Резервные копии", "Backups"));
-#if PRO
             tabBar.SetTabText(4, L.T("Оптимизация", "Tuning"));
-#endif
             themeTexts = new[] { L.T("Тёмная", "Dark"), L.T("Светлая", "Light") };
             themeSwitch.SetTexts(themeTexts);
             compactTheme = false;
@@ -269,9 +251,7 @@ namespace DriveUp
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (e.CloseReason == CloseReason.UserClosing && OperationRunning && updatesPage.Installing && !installPage.Installing && !backupPage.Working
-#if PRO
                 && !tunePage.Working
-#endif
                 )
             {
                 // Windows Update can be asked to stop (e.g. when it hangs): then the window closes by itself.
@@ -300,11 +280,8 @@ namespace DriveUp
                 // Installs and removals run inside DriveUP: closing now would cut them off half-way.
                 e.Cancel = true;
                 ThemedDialog.Info(this, L.T("Подождите немного", "Please wait"),
-                    Edition.Pro
-                        ? L.T("DriveUP Pro сейчас устанавливает драйверы или меняет настройки. Если закрыть окно, работа прервётся на середине.\nОкно можно будет закрыть, как только она закончится.",
-                              "DriveUP Pro is installing drivers or changing settings right now. Closing the window would cut that off half-way.\nYou can close it as soon as it is done.")
-                        : L.T("DriveUP сейчас устанавливает или удаляет драйверы. Если закрыть окно, работа прервётся на середине.\nОкно можно будет закрыть, как только она закончится.",
-                              "DriveUP is installing or removing drivers right now. Closing the window would cut that off half-way.\nYou can close it as soon as it is done."), false);
+                    L.T("DriveUP сейчас устанавливает драйверы или меняет настройки. Если закрыть окно, работа прервётся на середине.\nОкно можно будет закрыть, как только она закончится.",
+                        "DriveUP is installing drivers or changing settings right now. Closing the window would cut that off half-way.\nYou can close it as soon as it is done."), false);
                 return;
             }
             base.OnFormClosing(e);
@@ -315,9 +292,7 @@ namespace DriveUp
         {
             get
             {
-#if PRO
                 if (tunePage.Working) return true;
-#endif
                 return updatesPage.Installing || installPage.Installing || backupPage.Working;
             }
         }
@@ -432,8 +407,8 @@ namespace DriveUp
 
         void LayoutHeader()
         {
-            titleWidth = TextRenderer.MeasureText(Edition.Name, Theme.TitleFont, Size.Empty, TextFormatFlags.NoPadding).Width + S(4);
-            tabBar.Location = new Point(S(60) + titleWidth + S(28), 0);
+            titleWidth = TextDraw.MeasureText("DriveUP", Theme.TitleFont, Size.Empty, TextFormatFlags.NoPadding).Width + S(4);
+            tabBar.Location = new Point(S(64) + titleWidth + S(28), 0);
             // Narrow window: the theme switch keeps only its icons so nothing overlaps the tabs.
             bool compact = header.Width < tabBar.Right + S(24) + btnLang.Width + S(8) + themeSwitch.Width + S(16) + (compactTheme ? S(200) : 0);
             if (compact != compactTheme)

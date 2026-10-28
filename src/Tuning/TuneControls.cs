@@ -12,7 +12,7 @@ namespace DriveUp
     {
         public static int Width(string text)
         {
-            return TextRenderer.MeasureText(text, Theme.SmallFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + Theme.S(16);
+            return TextDraw.MeasureText(text, Theme.SmallFont, Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix).Width + Theme.S(16);
         }
 
         /// <summary>Draws it with its left edge at x, centred on cy; returns its width. alpha fades it in.</summary>
@@ -23,7 +23,7 @@ namespace DriveUp
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var r = new RectangleF(x, cy - h / 2f, w, h);
             Theme.FillRound(g, Anim.Blend(bg, Anim.Blend(bg, color, Theme.Current.IsDark ? 0.2f : 0.13f), alpha), r, h / 2f);
-            TextRenderer.DrawText(g, text, Theme.SmallFont, Rectangle.Round(r), Anim.Blend(bg, color, alpha),
+            TextDraw.DrawText(g, text, Theme.SmallFont, r, Anim.Blend(bg, color, alpha),
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
             g.SmoothingMode = old;
             return w;
@@ -105,14 +105,14 @@ namespace DriveUp
             string title = Mode.Name();
             int tw = MeasureWidth(title, Theme.UiBold);
             int ty = Height / 2 - S(21);
-            TextRenderer.DrawText(g, title, Theme.UiBold, new Rectangle(x, ty, right - x, S(22)), Anim.Blend(fill, p.Text, en), TextLeft);
+            TextDraw.DrawText(g, title, Theme.UiBold, new Rectangle(x, ty, right - x, S(22)), Anim.Blend(fill, p.Text, en), TextLeft);
             int bx = x + tw + S(10);
             float cy = ty + S(11);
             if (active.Value > 0.01f && bx < right - S(60))
                 bx += Pill.Draw(g, L.T("включён", "on"), bx, cy, p.Success, fill, active.Value * en) + S(6);
             if (rec.Value > 0.01f && bx < right - S(60))
                 Pill.Draw(g, L.T("подходит этому ПК", "suits this PC"), bx, cy, p.Accent, fill, rec.Value * en);
-            TextRenderer.DrawText(g, Mode.Desc(), Theme.SmallFont, new Rectangle(x, ty + S(24), right - x, S(36)), Anim.Blend(fill, p.TextDim, en),
+            TextDraw.DrawText(g, Mode.Desc(), Theme.SmallFont, new Rectangle(x, ty + S(24), right - x, S(36)), Anim.Blend(fill, p.TextDim, en),
                 TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
         }
     }
@@ -467,7 +467,7 @@ namespace DriveUp
                 Theme.FillRound(g, Anim.Blend(p.SurfaceAlt, p.Accent, 0.16f), box, S(16));
                 GlyphShape.Draw(g, EmptyGlyph, new PointF(box.X + tile / 2f, box.Y + tile / 2f), S(28), p.Accent, Math.Max(0.8f, S(1) * 1.1f));
             }
-            TextRenderer.DrawText(g, EmptyText, Font, new Rectangle(S(24), top + tile + S(16), Width - S(48), S(44)), p.TextDim,
+            TextDraw.DrawText(g, EmptyText, Font, new Rectangle(S(24), top + tile + S(16), Width - S(48), S(44)), p.TextDim,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
         }
 
@@ -517,7 +517,7 @@ namespace DriveUp
                     !Locked && act.Any(i => i.Ready), rowBg);
             }
             string title = Tuner.CategoryName(r.Category);
-            TextRenderer.DrawText(g, title, Theme.HeadFont, new Rectangle(S(48), (int)top, w - S(220), S(32)), Anim.Blend(bg, p.Text, a), TextLeft);
+            TextDraw.DrawText(g, title, Theme.HeadFont, new RectangleF(S(48), top, w - S(220), S(32)), Anim.Blend(bg, p.Text, a), TextLeft);
             string count;
             if (items.Any(i => i.Kind == TuneKind.Changed))
             {
@@ -530,7 +530,7 @@ namespace DriveUp
                 count = act.Count > 0 ? L.T("выбрано ", "") + on + L.T(" из ", " of ") + act.Count + L.T("", " picked") : "";
                 if (same > 0) count += (count.Length > 0 ? " · " : "") + L.T("уже так: ", "already set: ") + same;
             }
-            TextRenderer.DrawText(g, count, Theme.SmallFont, new Rectangle(w - S(260), (int)top, S(246), S(32)),
+            TextDraw.DrawText(g, count, Theme.SmallFont, new RectangleF(w - S(260), top, S(246), S(32)),
                 Anim.Blend(bg, Anim.Blend(p.TextDim, p.Accent, items.Any(i => i.Kind == TuneKind.Changed) ? h : 0), a),
                 TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             g.SmoothingMode = SmoothingMode.None;
@@ -572,7 +572,7 @@ namespace DriveUp
             int textR = w - rightW;
             string title = r.Tweak.Name();
             int tw = Math.Min(textR - x, MeasureWidth(title, Theme.UiBold));
-            TextRenderer.DrawText(g, title, Theme.UiBold, new Rectangle(x, (int)y + S(10), textR - x, S(22)), Anim.Blend(bg, p.Text, ink), TextLeft);
+            TextDraw.DrawText(g, title, Theme.UiBold, new RectangleF(x, y + S(10), textR - x, S(22)), Anim.Blend(bg, p.Text, ink), TextLeft);
             int px = x + tw + S(10);
             float pcy = y + S(21);
             if (r.Tweak.NeedsReboot && r.Kind != TuneKind.Same && px < textR - S(80))
@@ -587,7 +587,7 @@ namespace DriveUp
             }
 
             // Values: now → new (or was → now).
-            var vr = new Rectangle(x, (int)y + S(32), textR - x, S(20));
+            var vr = new RectangleF(x, y + S(32), textR - x, S(20));
             if (r.Kind == TuneKind.Same)
                 DrawValueLine(g, vr, L.T("уже ", "already ") + Show(r, r.Now), null, bg, ink);
             else if (r.Kind == TuneKind.Changed)
@@ -608,19 +608,19 @@ namespace DriveUp
             int sx = x;
             if (r.Warn != null && r.State != TuneState.Failed && sx < textR - S(80))
                 sx += Pill.Draw(g, r.Warn(), sx, y + S(61), p.Warning, rowBg, ink) + S(8);
-            TextRenderer.DrawText(g, sub, Theme.SmallFont, new Rectangle(sx, (int)y + S(52), textR - sx, S(18)), Anim.Blend(bg, subColor, ink * 0.95f), TextLeft);
+            TextDraw.DrawText(g, sub, Theme.SmallFont, new RectangleF(sx, y + S(52), textR - sx, S(18)), Anim.Blend(bg, subColor, ink * 0.95f), TextLeft);
 
             PaintRight(g, r, y, w, bg, rowBg, a);
             g.SmoothingMode = SmoothingMode.None;
         }
 
         /// <summary>"first → second": the arrow and the new value stand out.</summary>
-        void DrawValueLine(Graphics g, Rectangle r, string first, string second, Color bg, float ink)
+        void DrawValueLine(Graphics g, RectangleF r, string first, string second, Color bg, float ink)
         {
             var p = Theme.Current;
-            TextRenderer.DrawText(g, first, Font, r, Anim.Blend(bg, p.TextDim, ink), TextLeft);
+            TextDraw.DrawText(g, first, Font, r, Anim.Blend(bg, p.TextDim, ink), TextLeft);
             if (second == null) return;
-            int x = r.X + MeasureWidth(first, Font) + S(10);
+            float x = r.X + MeasureWidth(first, Font) + S(10);
             if (x > r.Right - S(40)) return;
             using (var pen = new Pen(Anim.Blend(bg, p.Accent, ink), Math.Max(1.4f, S(2) * 0.75f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
             {
@@ -629,7 +629,7 @@ namespace DriveUp
                 g.DrawLines(pen, new[] { new PointF(x + len - S(4), cy - S(4)), new PointF(x + len, cy), new PointF(x + len - S(4), cy + S(4)) });
             }
             x += S(14) + S(10);
-            TextRenderer.DrawText(g, second, Theme.UiBold, new Rectangle(x, r.Y, r.Right - x, r.Height), Anim.Blend(bg, p.Text, ink), TextLeft);
+            TextDraw.DrawText(g, second, Theme.UiBold, new RectangleF(x, r.Y, r.Right - x, r.Height), Anim.Blend(bg, p.Text, ink), TextLeft);
         }
 
         void PaintRight(Graphics g, TuneRow r, float y, int w, Color bg, Color rowBg, float a)
@@ -651,7 +651,7 @@ namespace DriveUp
                     DrawGlyph(g, "\uE7A7", new Rectangle(gx, br.Y, S(16), br.Height), Anim.Blend(bg, Anim.Blend(p.TextDim, p.Accent, bh), a));
                     gx += S(24);
                 }
-                TextRenderer.DrawText(g, L.T("Вернуть", "Return"), Font, new Rectangle(gx, br.Y, br.Right - gx - S(8), br.Height), ink, TextLeft);
+                TextDraw.DrawText(g, L.T("Вернуть", "Return"), Font, new Rectangle(gx, br.Y, br.Right - gx - S(8), br.Height), ink, TextLeft);
                 return;
             }
             if (r.State == TuneState.Working)
@@ -687,7 +687,7 @@ namespace DriveUp
                 float rad = S(11);
                 using (var b = new SolidBrush(Anim.Blend(bg, Anim.Blend(bg, p.Danger, 0.2f), a * st)))
                     g.FillEllipse(b, cx - rad, cy - rad, rad * 2, rad * 2);
-                TextRenderer.DrawText(g, "!", Theme.UiBold, new Rectangle((int)(cx - rad), (int)(cy - rad), (int)(rad * 2), (int)(rad * 2)), Anim.Blend(bg, p.Danger, a * st), TextCenter);
+                TextDraw.DrawText(g, "!", Theme.UiBold, new RectangleF(cx - rad, cy - rad, rad * 2, rad * 2), Anim.Blend(bg, p.Danger, a * st), TextCenter);
             }
             else if (r.Kind == TuneKind.Same)
             {

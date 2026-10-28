@@ -547,10 +547,10 @@ namespace DriveUp
             var r = e.Bounds;
             using (var b = new SolidBrush(p.Surface)) g.FillRectangle(b, r);
             bool sorted = SortEnabled && e.ColumnIndex == SortColumn;
-            TextRenderer.DrawText(g, e.Header.Text, Theme.UiBold,
-                new Rectangle(r.X + S(10), r.Y, r.Width - S(34), r.Height), sorted ? p.Text : p.TextDim, p.Surface, CellFlags);
+            TextDraw.DrawText(g, e.Header.Text, Theme.UiBold,
+                new Rectangle(r.X + S(12), r.Y, r.Width - S(36), r.Height), sorted ? p.Text : p.TextDim, p.Surface, CellFlags);
             if (sorted && Theme.HasGlyphs)
-                TextRenderer.DrawText(g, SortDesc ? "\uE70D" : "\uE70E", Theme.GlyphSmall,
+                TextDraw.DrawText(g, SortDesc ? "\uE70D" : "\uE70E", Theme.GlyphSmall,
                     new Rectangle(r.Right - S(24), r.Y, S(16), r.Height), p.Accent, p.Surface,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             using (var pen = new Pen(p.Border))
@@ -929,7 +929,7 @@ namespace DriveUp
                     Anim.Blend(p.Surface, p.TextDim, 0.6f), ink * 0.035f);
                 y += gh + S(12);
             }
-            TextRenderer.DrawText(g, EmptyText, Font, new Rectangle(S(24), y, ClientSize.Width - S(48), S(60)),
+            TextDraw.DrawText(g, EmptyText, Font, new Rectangle(S(24), y, ClientSize.Width - S(48), S(60)),
                 p.TextDim, p.Surface,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.NoPrefix | TextFormatFlags.WordBreak);
         }

@@ -41,7 +41,7 @@ namespace DriveUp
             Theme.FillRound(g, p.Surface, r, Theme.S(8));
             Theme.DrawRound(g, p.Border, r, Theme.S(8));
             if (Title.Length > 0 && TitleHeight > 0)
-                TextRenderer.DrawText(g, Title, Theme.HeadFont, new Rectangle(Theme.S(18), 0, Width - Theme.S(36), TitleHeight), p.Text,
+                TextDraw.DrawText(g, Title, Theme.HeadFont, new Rectangle(Theme.S(18), 0, Width - Theme.S(36), TitleHeight), p.Text,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
         }
     }
@@ -79,9 +79,9 @@ namespace DriveUp
             float a = alpha.Value;
             // Out, then in: the two texts never overlap.
             if (a < 0.5f && previous.Length > 0)
-                TextRenderer.DrawText(e.Graphics, previous, Font, ClientRectangle, Anim.Blend(pb, fg, 1 - a * 2), Flags);
+                TextDraw.DrawText(e.Graphics, previous, Font, ClientRectangle, Anim.Blend(pb, fg, 1 - a * 2), Flags);
             if (a > 0.5f)
-                TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, Anim.Blend(pb, fg, (a - 0.5f) * 2), Flags);
+                TextDraw.DrawText(e.Graphics, Text, Font, ClientRectangle, Anim.Blend(pb, fg, (a - 0.5f) * 2), Flags);
         }
     }
 
@@ -601,12 +601,12 @@ namespace DriveUp
                     var box = new RectangleF((Width - tile) / 2f, top, tile, tile);
                     Theme.FillRound(g, Anim.Blend(p.SurfaceAlt, p.Accent, 0.16f), box, S(16));
                     GlyphShape.Draw(g, EmptyGlyph, new PointF(box.X + tile / 2f, box.Y + tile / 2f), S(28), p.Accent, Math.Max(0.8f, S(1) * 1.1f));
-                    TextRenderer.DrawText(g, EmptyText, Font, new Rectangle(S(16), top + tile + S(16), Width - S(32), S(40)), p.TextDim,
+                    TextDraw.DrawText(g, EmptyText, Font, new Rectangle(S(16), top + tile + S(16), Width - S(32), S(40)), p.TextDim,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
                     g.SmoothingMode = SmoothingMode.None;
                 }
                 else if (EmptyText.Length > 0)
-                    TextRenderer.DrawText(g, EmptyText, Font, new Rectangle(0, S(24), Width, S(40)), p.TextDim, TextCenter);
+                    TextDraw.DrawText(g, EmptyText, Font, new Rectangle(0, S(24), Width, S(40)), p.TextDim, TextCenter);
                 return;
             }
             // Whole pixels everywhere: text snaps to pixels, so shapes must too or rows shimmer while moving.
@@ -713,12 +713,12 @@ namespace DriveUp
             int tx = S(96);
             int sizeW = S(110);
             var titleR = new Rectangle(tx, (int)y + S(10), w - tx - sizeW - S(40), S(20));
-            TextRenderer.DrawText(g, grp.Name(), Theme.UiBold, titleR, p.Text, TextLeft);
-            TextRenderer.DrawText(g, grp.Desc(), Theme.SmallFont, new Rectangle(tx, (int)y + S(30), titleR.Width, S(18)), p.TextDim, TextLeft);
+            TextDraw.DrawText(g, grp.Name(), Theme.UiBold, titleR, p.Text, TextLeft);
+            TextDraw.DrawText(g, grp.Desc(), Theme.SmallFont, new RectangleF(tx, y + S(30), titleR.Width, S(18)), p.TextDim, TextLeft);
 
             bool measured = grp.Measured;
             string size = linkGroup ? "" : (measured ? SizeText(grp.CheckedSize) : "…");
-            TextRenderer.DrawText(g, size, Theme.UiBold, new Rectangle(w - sizeW - S(40), (int)y, sizeW, GroupH),
+            TextDraw.DrawText(g, size, Theme.UiBold, new RectangleF(w - sizeW - S(40), y, sizeW, GroupH),
                 on == 0 ? p.TextDim : p.Text, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
 
             // chevron rotates from "right" to "down" as the group opens
@@ -752,7 +752,7 @@ namespace DriveUp
             string name = item.Name();
             int sizeW = S(110);
             int maxName = w - x - sizeW - S(48);
-            TextRenderer.DrawText(g, name, Font, new Rectangle(x, (int)y, maxName, ItemH), text, TextLeft);
+            TextDraw.DrawText(g, name, Font, new RectangleF(x, y, maxName, ItemH), text, TextLeft);
             x += Math.Min(maxName, MeasureWidth(name, Font)) + S(10);
             if (item.Warn)
             {
@@ -763,14 +763,14 @@ namespace DriveUp
             }
             string note = item.Disabled && item.DisabledText != null ? item.DisabledText() : (item.Note != null ? item.Note() : "");
             if (!string.IsNullOrEmpty(note) && x < w - sizeW - S(48))
-                TextRenderer.DrawText(g, note, Theme.SmallFont, new Rectangle(x, (int)y, w - sizeW - S(48) - x, ItemH),
+                TextDraw.DrawText(g, note, Theme.SmallFont, new RectangleF(x, y, w - sizeW - S(48) - x, ItemH),
                     Anim.Blend(bg, p.TextDim, ex * 0.9f), TextLeft);
 
             if (!item.Disabled)
             {
                 float a = item.Size < 0 ? 0.6f : (sizeIn.ContainsKey(item) ? sizeIn[item] : 1f);
                 Color sc = item.Checked ? Anim.Blend(p.TextDim, p.Text, 0.6f) : p.TextDim;
-                TextRenderer.DrawText(g, item.Badge ?? SizeText(item.Size), Font, new Rectangle(w - sizeW - S(40), (int)y, sizeW, ItemH),
+                TextDraw.DrawText(g, item.Badge ?? SizeText(item.Size), Font, new RectangleF(w - sizeW - S(40), y, sizeW, ItemH),
                     Anim.Blend(bg, sc, a * ex), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
             }
             g.SmoothingMode = SmoothingMode.None;

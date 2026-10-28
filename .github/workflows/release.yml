@@ -1,5 +1,5 @@
-# Builds DriveUP.exe and DriveUP_Pro.exe on every push and pull request; on a version tag
-# (v1.1.0, ...) also publishes a GitHub Release with both exes and their SHA-256 checksums.
+# Builds DriveUP.exe on every push and pull request; on a version tag (v1.1.0, ...) also
+# publishes a GitHub Release with the exe and its SHA-256 checksum.
 name: Build
 
 on:
@@ -25,7 +25,7 @@ jobs:
       - name: Checksums
         shell: pwsh
         run: |
-          foreach ($name in 'DriveUP.exe', 'DriveUP_Pro.exe') {
+          foreach ($name in 'DriveUP.exe') {
             $hash = (Get-FileHash "bin\$name" -Algorithm SHA256).Hash.ToLower()
             "$hash  $name" | Out-File "bin\$name.sha256" -Encoding ascii
             Get-Content "bin\$name.sha256"
@@ -37,12 +37,10 @@ jobs:
           path: |
             bin/DriveUP.exe
             bin/DriveUP.exe.sha256
-            bin/DriveUP_Pro.exe
-            bin/DriveUP_Pro.exe.sha256
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME bin\DriveUP.exe bin\DriveUP.exe.sha256 bin\DriveUP_Pro.exe bin\DriveUP_Pro.exe.sha256 --title "DriveUP $env:GITHUB_REF_NAME" --generate-notes
+        run: gh release create $env:GITHUB_REF_NAME bin\DriveUP.exe bin\DriveUP.exe.sha256 --title "DriveUP $env:GITHUB_REF_NAME" --generate-notes

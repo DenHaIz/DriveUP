@@ -31,7 +31,7 @@ namespace DriveUp
             Opacity = 0;
 
             int S16 = Theme.S(16), pad = Theme.S(24);
-            var icon = new Label
+            var icon = new SmoothLabel
             {
                 Text = Theme.HasGlyphs ? iconGlyph : "",
                 Font = new Font("Segoe MDL2 Assets", 20f),
@@ -40,7 +40,7 @@ namespace DriveUp
                 AutoSize = true,
                 Location = new Point(pad, pad),
             };
-            var msg = new Label
+            var msg = new SmoothLabel
             {
                 Text = message,
                 AutoSize = true,
@@ -192,7 +192,7 @@ namespace DriveUp
             if (tag != null && Theme.HasGlyphs)
             {
                 Color c = !e.Item.Enabled ? Anim.Blend(p.TextDim, p.SurfaceAlt, 0.5f) : (tag.Danger ? p.Danger : p.TextDim);
-                TextRenderer.DrawText(g, tag.Glyph, Theme.Glyph, new Rectangle(Theme.S(8), 0, Theme.S(20), r.Height), c,
+                TextDraw.DrawText(g, tag.Glyph, Theme.Glyph, new Rectangle(Theme.S(8), 0, Theme.S(20), r.Height), c,
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             }
         }

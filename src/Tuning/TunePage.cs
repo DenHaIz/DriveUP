@@ -8,7 +8,7 @@ using System.Windows.Forms;
 namespace DriveUp
 {
     /// <summary>
-    /// DriveUP Pro: system tuning. Left: the smart pick and the three modes. Right: what the
+    /// DriveUP: system tuning. Left: the smart pick and the three modes. Right: what the
     /// chosen mode changes on this computer (now → new, and why), or everything changed so far
     /// (was → now) with a Return button on each. Every change can be undone, one by one or all.
     /// </summary>
@@ -38,14 +38,14 @@ namespace DriveUp
         {
             smartCard.TitleBase = 46;
             btnSmart = new FlatButton("", "\uE945", ButtonKind.Primary);
-            btnSmart.SetBaseHeight(34);
+            btnSmart.SetBaseHeight(Theme.ControlH);
             btnSmart.Click += (s, e) => SmartPick();
             smartText.Font = Theme.SmallFont;
             smartCard.Controls.Add(smartText);
             smartCard.Controls.Add(recText);
             smartCard.Controls.Add(btnSmart);
             btnMeasure = new FlatButton("", "\uE9D9");
-            btnMeasure.SetBaseHeight(34);
+            btnMeasure.SetBaseHeight(Theme.ControlH);
             btnMeasure.Click += (s, e) => MeasureNow();
             smartCard.Controls.Add(btnMeasure);
             smartCard.Resize += (s, e) => LayoutSmart();
@@ -65,11 +65,11 @@ namespace DriveUp
             list.CheckedChanged += (s, e) => UpdateInfo();
             list.ReturnClicked += row => ReturnRows(new List<TuneRow> { row });
             btnApply = new FlatButton("", "\uE73E", ButtonKind.Primary);
-            btnApply.SetBaseHeight(38);
+            btnApply.SetBaseHeight(40);
             btnApply.Font = Theme.UiBold;
             btnApply.Click += (s, e) => Apply();
             btnReturnAll = new FlatButton("", "\uE7A7");
-            btnReturnAll.SetBaseHeight(38);
+            btnReturnAll.SetBaseHeight(40);
             btnReturnAll.Visible = false;
             btnReturnAll.Click += (s, e) => ReturnRows(list.Rows.Where(r => r.Kind == TuneKind.Changed && r.Ready).ToList());
             list.ReturnGroup += rows => ReturnRows(rows);
@@ -149,8 +149,8 @@ namespace DriveUp
             SetButton(btnMeasure, L.T("Замер", "Measure"));
             tip.SetToolTip(btnMeasure, L.T("Процессы, память, фоновая загрузка, службы, автозагрузка и время загрузки Windows — сейчас и до применения режима",
                 "Processes, memory, background load, services, startup and Windows boot time — now and before a mode was applied"));
-            tip.SetToolTip(btnSmart, L.T("DriveUP Pro смотрит на компьютер — ноутбук или ПК, батарея, видеокарта, версия Windows —\nи выбирает режим и значения, которые ему подходят",
-                "DriveUP Pro looks at the computer — laptop or desktop, battery, graphics card, Windows version —\nand picks the mode and values that suit it"));
+            tip.SetToolTip(btnSmart, L.T("DriveUP смотрит на компьютер — ноутбук или ПК, батарея, видеокарта, версия Windows —\nи выбирает режим и значения, которые ему подходят",
+                "DriveUP looks at the computer — laptop or desktop, battery, graphics card, Windows version —\nand picks the mode and values that suit it"));
             SetButton(btnReturnAll, L.T("Вернуть всё", "Return all"));
             list.EmptyGlyph = "\uE73E";
             UpdateViewTexts();
@@ -249,7 +249,7 @@ namespace DriveUp
                 if (!loaded) return L.T("Смотрю настройки Windows…", "Reading Windows settings…");
                 var mode = Tuner.Mode(Settings.TuneMode);
                 int n = Tuner.ChangedCount;
-                if (n == 0) return L.T("Настройки Windows не менялись — всё как было до DriveUP Pro", "Windows settings untouched — all as it was before DriveUP Pro");
+                if (n == 0) return L.T("Настройки Windows не менялись — всё как было до DriveUP", "Windows settings untouched — all as it was before DriveUP");
                 return (mode != null ? L.T("Режим «", "Mode: ") + mode.Name() + L.T("» · ", " · ") : "") +
                        L.Count(n, "параметр изменён", "параметра изменено", "параметров изменено", "setting changed", "settings changed");
             }
@@ -483,7 +483,7 @@ namespace DriveUp
                 {
                     Post(() => info.SetText(L.T("Создаю точку восстановления…", "Creating a restore point…")));
                     bool ok;
-                    string why = SysRestore.Create("DriveUP Pro: " + mode.Name(), out ok);
+                    string why = SysRestore.Create("DriveUP: " + mode.Name(), out ok);
                     if (!ok && why != null) Post(() => Host.ShowToast(L.T("Точка восстановления не создана: ", "No restore point: ") + why, ToastKind.Info));
                 }
                 foreach (var row in Tuner.Order(todo))

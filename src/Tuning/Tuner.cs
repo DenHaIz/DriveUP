@@ -48,7 +48,7 @@ namespace DriveUp
         public TuneCat Category;
         /// <summary>Change: the value to set.</summary>
         public string Target = "";
-        /// <summary>Values (shown through Tweak.Describe): now, what it gets, what it was before DriveUP Pro.</summary>
+        /// <summary>Values (shown through Tweak.Describe): now, what it gets, what it was before DriveUP.</summary>
         public string Now = "", To = "", Was = "";
         public Func<string> Reason = () => "";
         public bool Checked = true;
@@ -71,7 +71,7 @@ namespace DriveUp
     }
 
     /// <summary>
-    /// The modes of DriveUP Pro and what they change. Rules, not guesses: every value is a known
+    /// The modes of DriveUP and what they change. Rules, not guesses: every value is a known
     /// Windows setting, chosen from what the computer is (laptop or desktop, on battery, processor,
     /// memory, system drive, graphics card, Windows version). Before a setting is first changed its
     /// exact old state is saved (Settings.TuneSaved), so each one can be put back on its own.
@@ -663,7 +663,7 @@ namespace DriveUp
                     rows.Add(new TuneRow
                     {
                         Tweak = t, Category = t.Category, Kind = TuneKind.Return, Target = old, Now = now, To = old,
-                        Reason = () => L.T("Этому режиму не нужно — вернётся как было до DriveUP Pro", "Not needed here — goes back to how it was before DriveUP Pro"),
+                        Reason = () => L.T("Этому режиму не нужно — вернётся как было до DriveUP", "Not needed here — goes back to how it was before DriveUP"),
                     });
                 }
             }
@@ -710,7 +710,7 @@ namespace DriveUp
             return list;
         }
 
-        /// <summary>Everything DriveUP Pro has changed and not put back yet: was → now.</summary>
+        /// <summary>Everything DriveUP has changed and not put back yet: was → now.</summary>
         public static List<TuneRow> Changed()
         {
             var rows = new List<TuneRow>();
@@ -783,14 +783,14 @@ namespace DriveUp
                 throw;
             }
             lock (Settings.Sync) Settings.TuneWhen[t.Id] = stamp;
-            // Set back to exactly how it was before DriveUP Pro: nothing left to return.
+            // Set back to exactly how it was before DriveUP: nothing left to return.
             string now = null;
             try { now = t.Capture(); } catch { }
             if (now == raw) Forget(t.Id);
             else Settings.Save();
         }
 
-        /// <summary>Puts one setting back exactly as it was before DriveUP Pro changed it.</summary>
+        /// <summary>Puts one setting back exactly as it was before DriveUP changed it.</summary>
         public static void Return(Tweak t)
         {
             string raw = Saved(t.Id);
@@ -811,7 +811,7 @@ namespace DriveUp
         }
 
         /// <summary>
-        /// Every changed setting back as it was, no window (DriveUP_Pro.exe /restore). Returns the
+        /// Every changed setting back as it was, no window (DriveUP.exe /restore). Returns the
         /// number that failed; the result is shown in a message and written to the journal.
         /// </summary>
         public static int ReturnAll()
@@ -826,10 +826,10 @@ namespace DriveUp
             }
             Journal.Add(JournalKind.TuneReturn, done, failed, "/restore");
             string text = done + failed == 0
-                ? L.T("DriveUP Pro ничего не менял — возвращать нечего.", "DriveUP Pro changed nothing — there is nothing to return.")
+                ? L.T("DriveUP ничего не менял — возвращать нечего.", "DriveUP changed nothing — there is nothing to return.")
                 : L.T("Возвращено как было: ", "Returned: ") + done + (failed > 0 ? L.T("\nНе удалось: ", "\nFailed: ") + failed + "\n" + string.Join("\n", errors) : "") +
                   L.T("\n\nПерезагрузите компьютер, чтобы всё применилось.", "\n\nRestart the computer for everything to apply.");
-            System.Windows.Forms.MessageBox.Show(text, "DriveUP Pro", System.Windows.Forms.MessageBoxButtons.OK,
+            System.Windows.Forms.MessageBox.Show(text, "DriveUP", System.Windows.Forms.MessageBoxButtons.OK,
                 failed > 0 ? System.Windows.Forms.MessageBoxIcon.Warning : System.Windows.Forms.MessageBoxIcon.Information);
             return failed;
         }

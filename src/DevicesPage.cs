@@ -152,15 +152,15 @@ namespace DriveUp
 
         void LayoutToolbar()
         {
-            int x = S(16), y = (toolbar.Height - S(32)) / 2;
+            int x = S(16), y = (toolbar.Height - S(Theme.ControlH)) / 2;
             filter.Location = new Point(x, y);
-            x = filter.Right + S(20);
+            x = filter.Right + S(16);
             // Narrow window: buttons give up their captions one by one (the tooltips still explain them),
             // the least needed first: Properties (also on double-click), then Find, then the vendor's site.
             var buttons = new[] { btnProps, btnFind, btnSite };
             var captions = new[] { L.T("Свойства", "Properties"), L.T("Найти драйвер", "Find a driver"), L.T("Сайт производителя", "Vendor's site") };
-            var widths = captions.Select(c => S(24) + S(16) + S(8) + TextRenderer.MeasureText(c, Theme.UiFont, Size.Empty, TextFormatFlags.NoPadding).Width).ToArray();
-            int room = toolbar.Width - x - (btnRescan.Width + S(8)) - S(160) - S(32);
+            var widths = captions.Select(c => S(24) + S(16) + S(8) + TextDraw.MeasureText(c, Theme.UiFont, Size.Empty, TextFormatFlags.NoPadding).Width).ToArray();
+            int room = toolbar.Width - x - (btnRescan.Width + S(8)) - S(120) - S(28);
             int bare = S(40);
             int folded = 0;
             while (folded < buttons.Length && widths.Select((wd, i) => (i < folded ? bare : wd) + S(8)).Sum() > room) folded++;
@@ -173,8 +173,8 @@ namespace DriveUp
             }
             btnRescan.Location = new Point(x, y);
             x = btnRescan.Right + S(8);
-            int w = Math.Max(S(160), Math.Min(S(300), toolbar.Width - x - S(32)));
-            search.SetBounds(toolbar.Width - S(16) - w, y, w, S(32));
+            int w = Math.Max(S(120), Math.Min(S(300), toolbar.Width - x - S(28)));
+            search.SetBounds(toolbar.Width - S(16) - w, y, w, S(Theme.ControlH));
         }
 
         public override void FocusSearch() { search.FocusBox(); }

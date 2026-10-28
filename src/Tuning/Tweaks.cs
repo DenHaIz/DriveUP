@@ -396,7 +396,7 @@ namespace DriveUp
     enum TuneCat { Power, Gaming, Interface, Services, Background, Apps, Tasks, Startup, Privacy, System, Updates }
 
     /// <summary>
-    /// One system setting DriveUP Pro can change and put back exactly as it was. Values are short
+    /// One system setting DriveUP can change and put back exactly as it was. Values are short
     /// strings ("1"/"0", "perf", "100,*"); <see cref="Capture"/> returns the exact old state, which
     /// may hold more than the value (e.g. that a registry value did not exist at all).
     /// </summary>
@@ -1042,7 +1042,7 @@ namespace DriveUp
             if (touched) PowerApi.Activate(active);
         }
 
-        /// <summary>The value in the plan that was active first (before DriveUP Pro).</summary>
+        /// <summary>The value in the plan that was active first (before DriveUP).</summary>
         public override string ValueOf(string raw)
         {
             var parts = raw.Split(';')[0].Split('|');

@@ -6,9 +6,10 @@ using System.Text;
 namespace DriveUp
 {
     /// <summary>
-    /// Portable settings: DriveUP.ini (DriveUP_Pro.ini) next to the exe, or %LOCALAPPDATA%\DriveUP when that
-    /// folder is read-only (e.g. Program Files). Nothing is written to the registry. Both editions share
-    /// the backup folder, so either one restores the other's backups.
+    /// Portable settings: DriveUP.ini next to the exe, or %LOCALAPPDATA%\DriveUP when that folder is
+    /// read-only (e.g. Program Files). Only the old states of tuned settings go to the registry (below).
+    /// Until 1.3 there were two editions; DriveUP Pro's DriveUP_Pro.ini, journal and registry key are
+    /// picked up once and carried over.
     /// </summary>
     static class Settings
     {
@@ -21,11 +22,10 @@ namespace DriveUp
         public static DateTime LastCheck = DateTime.MinValue;
         /// <summary>Where driver backups go; empty = Documents\DriveUP Backup.</summary>
         public static string BackupRoot = "";
-#if PRO
         /// <summary>The tuning mode applied last ("games", "work", "quiet"); empty = none.</summary>
         public static string TuneMode = "";
         /// <summary>
-        /// What each setting was before DriveUP Pro first changed it (setting id → its exact old state),
+        /// What each setting was before DriveUP first changed it (setting id → its exact old state),
         /// so any of them can be put back. Kept until the setting is returned.
         /// </summary>
         public static readonly System.Collections.Generic.Dictionary<string, string> TuneSaved =
@@ -35,7 +35,6 @@ namespace DriveUp
         /// <summary>When each setting was changed and by which mode: id → "mode|ISO time".</summary>
         public static readonly System.Collections.Generic.Dictionary<string, string> TuneWhen =
             new System.Collections.Generic.Dictionary<string, string>();
-#endif
 
         static string dir;
 
@@ -54,8 +53,10 @@ namespace DriveUp
             }
         }
 
-        public static string IniPath { get { return Path.Combine(Dir, Edition.Id + ".ini"); } }
-        public static string LogPath { get { return Path.Combine(Dir, Edition.Id + ".log"); } }
+        public static string IniPath { get { return Path.Combine(Dir, "DriveUP.ini"); } }
+        public static string LogPath { get { return Path.Combine(Dir, "DriveUP.log"); } }
+        /// <summary>Where DriveUP Pro (until 1.3) kept its settings and journal, next to the same exe folder.</summary>
+        static string LegacyPath(string ext) { return Path.Combine(Dir, "DriveUP_Pro" + ext); }
 
         public static string DefaultBackupRoot
         {
@@ -79,7 +80,7 @@ namespace DriveUp
             }
             catch
             {
-                string local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Edition.Id);
+                string local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DriveUP");
                 try { Directory.CreateDirectory(local); } catch { }
                 return local;
             }
@@ -87,17 +88,22 @@ namespace DriveUp
 
         public static void Load()
         {
-            LoadIni();
-#if PRO
+            // DriveUP Pro's settings first, so this folder's DriveUP.ini wins where both have one.
+            if (File.Exists(LegacyPath(".ini"))) LoadIni(LegacyPath(".ini"));
+            LoadIni(IniPath);
+            // Its journal, when there is none of DriveUP's own yet.
+            try
+            {
+                if (!File.Exists(LogPath) && File.Exists(LegacyPath(".log"))) File.Copy(LegacyPath(".log"), LogPath);
+            }
+            catch { }
             // Old states kept by 1.1 / 1.2 in the .ini are kept (moved to the registry on the next save);
             // the registry wins where both have one.
             LoadTuning();
-#endif
         }
 
-        static void LoadIni()
+        static void LoadIni(string path)
         {
-            string path = IniPath;
             if (!File.Exists(path)) return;
             try
             {
@@ -123,13 +129,11 @@ namespace DriveUp
                 case "CheckOnStart": CheckOnStart = val == "1"; break;
                 case "LastCheck": LastCheck = ParseDate(val); break;
                 case "BackupRoot": BackupRoot = val; break;
-#if PRO
                 case "TuneMode": TuneMode = val; break;
                 default:
                     if (key.StartsWith("Saved.", StringComparison.Ordinal) && key.Length > 6) TuneSaved[key.Substring(6)] = val;
                     else if (key.StartsWith("When.", StringComparison.Ordinal) && key.Length > 5) TuneWhen[key.Substring(5)] = val;
                     break;
-#endif
             }
         }
 
@@ -144,44 +148,57 @@ namespace DriveUp
             return d == DateTime.MinValue ? "" : d.ToString("o", CultureInfo.InvariantCulture);
         }
 
-        /// <summary>Saving can come from a background thread (DriveUP Pro tuning): one at a time.</summary>
+        /// <summary>Saving can come from a background thread (tuning): one at a time.</summary>
         public static readonly object Sync = new object();
 
-        /// <summary>Writes the settings; false when they could not be stored (DriveUP Pro then changes nothing).</summary>
+        /// <summary>Writes the settings; false when they could not be stored (tuning then changes nothing).</summary>
         public static bool Save()
         {
             lock (Sync)
             {
                 bool ok = SaveLocked();
-#if PRO
                 ok &= SaveTuning();
-#endif
+                // Carried over: DriveUP Pro's .ini must not bring back old states that have been returned since.
+                if (ok)
+                    try { File.Delete(LegacyPath(".ini")); } catch { }
                 return ok;
             }
         }
 
-#if PRO
         /// <summary>
-        /// The old states of changed settings live in HKLM\SOFTWARE\DriveUP Pro: only administrators can
+        /// The old states of changed settings live in HKLM\SOFTWARE\DriveUP: only administrators can
         /// change them, they survive deleting or moving the exe, and text is kept exactly. Older versions
-        /// kept them in the .ini; those are read once and moved here.
+        /// kept them in the .ini (1.1, 1.2) or in HKLM\SOFTWARE\DriveUP Pro (1.2, 1.3); those are read and
+        /// moved here on the next save.
         /// </summary>
         /// <summary>Tests: the old states go to this HKCU key instead.</summary>
         public static string TestStore;
 
-        static Microsoft.Win32.RegistryKey TuningKey(bool write)
+        const string TuningPath = @"SOFTWARE\DriveUP", LegacyTuningPath = @"SOFTWARE\DriveUP Pro";
+
+        static Microsoft.Win32.RegistryKey TuningKey(bool write, string path = TuningPath)
         {
             if (TestStore != null)
-                return write ? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(TestStore) : Microsoft.Win32.Registry.CurrentUser.OpenSubKey(TestStore);
+            {
+                string p = path == TuningPath ? TestStore : TestStore + ".Legacy";
+                return write ? Microsoft.Win32.Registry.CurrentUser.CreateSubKey(p) : Microsoft.Win32.Registry.CurrentUser.OpenSubKey(p);
+            }
             using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64))
-                return write ? hklm.CreateSubKey(@"SOFTWARE\DriveUP Pro") : hklm.OpenSubKey(@"SOFTWARE\DriveUP Pro");
+                return write ? hklm.CreateSubKey(path) : hklm.OpenSubKey(path);
         }
 
         static void LoadTuning()
         {
+            // DriveUP Pro's key first: DriveUP's own wins where both have one.
+            LoadTuning(LegacyTuningPath);
+            LoadTuning(TuningPath);
+        }
+
+        static void LoadTuning(string path)
+        {
             try
             {
-                using (var k = TuningKey(false))
+                using (var k = TuningKey(false, path))
                 {
                     if (k == null) return;
                     foreach (string name in k.GetValueNames())
@@ -215,16 +232,24 @@ namespace DriveUp
                     foreach (var kv in TuneSaved) k.SetValue("Saved." + kv.Key, kv.Value, Microsoft.Win32.RegistryValueKind.String);
                     foreach (var kv in TuneWhen) if (TuneSaved.ContainsKey(kv.Key)) k.SetValue("When." + kv.Key, kv.Value, Microsoft.Win32.RegistryValueKind.String);
                 }
+                // Everything from DriveUP Pro's key is in DriveUP's now.
+                try
+                {
+                    if (TestStore != null) Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(TestStore + ".Legacy", false);
+                    else
+                        using (var hklm = Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryView.Registry64))
+                            hklm.DeleteSubKeyTree(LegacyTuningPath, false);
+                }
+                catch { }
                 return true;
             }
             catch { return false; }
         }
-#endif
 
         static bool SaveLocked()
         {
             var sb = new StringBuilder();
-            sb.AppendLine("; " + Edition.Name + " settings");
+            sb.AppendLine("; DriveUP settings");
             sb.AppendLine("[Settings]");
             sb.AppendLine("Theme=" + Theme);
             sb.AppendLine("Language=" + Language);
@@ -232,7 +257,7 @@ namespace DriveUp
             sb.AppendLine("CheckOnStart=" + (CheckOnStart ? "1" : "0"));
             sb.AppendLine("LastCheck=" + FormatDate(LastCheck));
             sb.AppendLine("BackupRoot=" + BackupRoot);
-            // Written aside and swapped in: a crash mid-write never leaves a half file (DriveUP Pro
+            // Written aside and swapped in: a crash mid-write never leaves a half file (DriveUP
             // keeps the old values of changed settings here).
             string tmp = IniPath + ".tmp";
             try

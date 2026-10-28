@@ -342,8 +342,8 @@ namespace DriveUp
             int innerW = (int)(radius * 2 - stroke * 2);
             var capRect = new Rectangle((Width - innerW) / 2, (int)Math.Round(blockTop + gh + S(4)), innerW, ch);
             if (capFade < 1 && prevCaption.Length > 0)
-                TextRenderer.DrawText(g, prevCaption, capFont, capRect, Anim.Blend(inner, p.TextDim, 1 - Smooth(0, 0.5f, capFade)), TextCenter | TextFormatFlags.EndEllipsis);
-            TextRenderer.DrawText(g, caption, capFont, capRect, Anim.Blend(inner, p.TextDim, Smooth(0.5f, 1, capFade)), TextCenter | TextFormatFlags.EndEllipsis);
+                TextDraw.DrawText(g, prevCaption, capFont, capRect, Anim.Blend(inner, p.TextDim, 1 - Smooth(0, 0.5f, capFade)), TextCenter | TextFormatFlags.EndEllipsis);
+            TextDraw.DrawText(g, caption, capFont, capRect, Anim.Blend(inner, p.TextDim, Smooth(0.5f, 1, capFade)), TextCenter | TextFormatFlags.EndEllipsis);
         }
 
         static float Smooth(float a, float b, float t)
@@ -408,7 +408,7 @@ namespace DriveUp
                 {
                     string text = kind == Center.Percent ? (int)Math.Round(progress * 100) + "%" : ((int)Math.Round(shownNumber)).ToString();
                     var r = new Rectangle(0, (int)Math.Round(pic.Y), Width, numFont.Height);
-                    TextRenderer.DrawText(g, text, numFont, r, Anim.Blend(inner, p.Text, alpha), TextCenter);
+                    TextDraw.DrawText(g, text, numFont, r, Anim.Blend(inner, p.Text, alpha), TextCenter);
                     break;
                 }
                 case Center.Tick:

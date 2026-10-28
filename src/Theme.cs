@@ -15,14 +15,17 @@ namespace DriveUp
 
     static class Theme
     {
+        /// <summary>Height of buttons, switches and search fields, in design pixels: one row lines up.</summary>
+        public const int ControlH = 36;
+
         public static readonly Palette Dark = new Palette
         {
             IsDark = true,
             Bg = Hex(0x1B1C1F), Surface = Hex(0x232428), SurfaceAlt = Hex(0x2B2D31),
             Hover = Hex(0x33353B), Pressed = Hex(0x3D4048), Border = Hex(0x393B41),
-            Text = Hex(0xE6E7EA), TextDim = Hex(0x9A9DA6), Accent = Hex(0x8B5CF6), AccentText = Color.White,
-            Selected = Hex(0x3B2E66), SelectedInactive = Hex(0x34373E),
-            Danger = Hex(0xFF6B6B), Success = Hex(0x3DD68C), Warning = Hex(0xF5B83D),
+            Text = Hex(0xE6E7EA), TextDim = Hex(0x9A9DA6), Accent = Hex(0xD6304F), AccentText = Color.White,
+            Selected = Hex(0x4A1F2B), SelectedInactive = Hex(0x34373E),
+            Danger = Hex(0xFF8A5B), Success = Hex(0x3DD68C), Warning = Hex(0xF5B83D),
         };
 
         public static readonly Palette Light = new Palette
@@ -30,25 +33,11 @@ namespace DriveUp
             IsDark = false,
             Bg = Hex(0xF3F4F6), Surface = Hex(0xFFFFFF), SurfaceAlt = Hex(0xEDEEF1),
             Hover = Hex(0xE4E6EB), Pressed = Hex(0xD7DAE0), Border = Hex(0xD9DCE2),
-            Text = Hex(0x1F2328), TextDim = Hex(0x6B7280), Accent = Hex(0x7C3AED), AccentText = Color.White,
-            Selected = Hex(0xEDE5FE), SelectedInactive = Hex(0xE6E8EC),
-            Danger = Hex(0xD93636), Success = Hex(0x16A34A), Warning = Hex(0xD97706),
+            Text = Hex(0x1F2328), TextDim = Hex(0x6B7280), Accent = Hex(0xC0263F), AccentText = Color.White,
+            Selected = Hex(0xFBE3E8), SelectedInactive = Hex(0xE6E8EC),
+            Danger = Hex(0xD9541E), Success = Hex(0x16A34A), Warning = Hex(0xD97706),
         };
 
-#if PRO
-        // DriveUP Pro: crimson instead of violet, in step with its mark. Errors move to a warmer
-        // red-orange so they never read as the accent.
-        static Theme()
-        {
-            Dark.Accent = Hex(0xD6304F);
-            Dark.Selected = Hex(0x4A1F2B);
-            Dark.Danger = Hex(0xFF8A5B);
-            Light.Accent = Hex(0xC0263F);
-            Light.Selected = Hex(0xFBE3E8);
-            Light.Danger = Hex(0xD9541E);
-        }
-
-#endif
         public static Palette Current = Dark;
 
         /// <summary>Pixels per design pixel: monitor DPI times the window zoom.</summary>
@@ -87,7 +76,7 @@ namespace DriveUp
                 // Font sizes are in points, which GDI already scales by DPI: only the zoom applies here.
                 f = new[]
                 {
-                    new Font("Segoe UI", 9.5f * zoom), new Font("Segoe UI Semibold", 9.5f * zoom), new Font("Segoe UI", 8.5f * zoom),
+                    new Font("Segoe UI", 9.5f * zoom), new Font("Segoe UI Semibold", 9.5f * zoom), new Font("Segoe UI", 9f * zoom),
                     new Font("Segoe UI Semibold", 13f * zoom), new Font("Segoe UI Semibold", 11f * zoom), new Font("Segoe UI Semibold", 24f * zoom),
                     new Font("Segoe MDL2 Assets", 10f * zoom), new Font("Segoe MDL2 Assets", 8f * zoom),
                     new Font("Segoe MDL2 Assets", 14f * zoom), new Font("Segoe MDL2 Assets", 26f * zoom),

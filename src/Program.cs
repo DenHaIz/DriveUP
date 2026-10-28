@@ -12,11 +12,11 @@ namespace DriveUp
     {
         /// <summary>
         /// Name of the single-instance lock and of the "show" message. The test build
-        /// (DriveUP.dev.exe) has its own, so it never touches a running release copy; so does DriveUP Pro.
+        /// (DriveUP.dev.exe) has its own, so it never touches a running release copy.
         /// </summary>
         public static readonly string Instance =
             Path.GetFileNameWithoutExtension(Application.ExecutablePath).EndsWith(".dev", StringComparison.OrdinalIgnoreCase)
-                ? Edition.Id + ".Dev" : Edition.Id;
+                ? "DriveUP.Dev" : "DriveUP";
 
         [DllImport("user32.dll")]
         static extern bool PostMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
@@ -42,7 +42,7 @@ namespace DriveUp
         /// DriveUP.exe              - open the window
         /// DriveUP.exe /tab:N       - open on tab N (1..4); brings up a running instance on that tab
         /// DriveUP.exe path...      - open the Install tab with these folders / .inf / .zip / .cab
-        /// DriveUP_Pro.exe /restore - put every setting changed by the Tuning tab back, then exit
+        /// DriveUP.exe /restore - put every setting changed by the Tuning tab back, then exit
         /// </summary>
         [STAThread]
         static int Main(string[] args)
@@ -58,8 +58,7 @@ namespace DriveUp
 
             Settings.Load();
             L.Init();
-#if PRO
-            // DriveUP_Pro.exe /restore: puts every changed setting back without opening the window
+            // DriveUP.exe /restore: puts every changed setting back without opening the window
             // (for when something went wrong and the tab is out of reach).
             if (args.Any(a => a.Equals("/restore", StringComparison.OrdinalIgnoreCase)))
             {
@@ -68,15 +67,14 @@ namespace DriveUp
                 {
                     if (!alone)
                     {
-                        MessageBox.Show(L.T("Закройте окно DriveUP Pro и запустите возврат снова — или верните всё в окне: «Оптимизация» → «Изменено» → «Вернуть всё».",
-                                            "Close the DriveUP Pro window and run the return again — or return everything in the window: Tuning → Changed → Return all."),
-                            "DriveUP Pro", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        MessageBox.Show(L.T("Закройте окно DriveUP и запустите возврат снова — или верните всё в окне: «Оптимизация» → «Изменено» → «Вернуть всё».",
+                                            "Close the DriveUP window and run the return again — or return everything in the window: Tuning → Changed → Return all."),
+                            "DriveUP", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return 1;
                     }
                     return Tuner.ReturnAll();
                 }
             }
-#endif
 
             bool first;
             using (var mutex = new Mutex(true, @"Local\" + Instance + ".SingleInstance", out first))
@@ -99,7 +97,7 @@ namespace DriveUp
                 Theme.Init(scale);
 
                 var form = new MainForm();
-                if (tab >= 1 && tab <= (Edition.Pro ? 5 : 4)) form.StartTab = tab - 1;
+                if (tab >= 1 && tab <= 5) form.StartTab = tab - 1;
                 if (paths.Length > 0) form.StartPaths = paths;
                 Application.Run(form);
             }

@@ -68,10 +68,10 @@ namespace DriveUp
             bottom.Dock = DockStyle.Bottom;
             bottom.Height = S(46);
             btnOpen = new FlatButton("", "\uED25", ButtonKind.Ghost);
-            btnOpen.SetBaseHeight(30);
+            btnOpen.SetBaseHeight(32);
             btnOpen.Click += (s, e) => OpenBackupFolder();
             btnChange = new FlatButton("", "\uE70F", ButtonKind.Ghost);
-            btnChange.SetBaseHeight(30);
+            btnChange.SetBaseHeight(32);
             btnChange.Click += (s, e) => ChangeFolder();
             bottom.Controls.Add(where);
             bottom.Controls.Add(btnOpen);
@@ -130,7 +130,7 @@ namespace DriveUp
 
         void LayoutToolbar()
         {
-            int x = S(16), y = (toolbar.Height - S(32)) / 2;
+            int x = S(16), y = (toolbar.Height - S(Theme.ControlH)) / 2;
             filter.Location = new Point(x, y);
             x = filter.Right + S(20);
             foreach (var b in new[] { btnBackup, btnRestore, btnCleanup })
@@ -139,7 +139,7 @@ namespace DriveUp
                 x = b.Right + S(8);
             }
             int w = Math.Max(S(140), Math.Min(S(280), toolbar.Width - x - S(32)));
-            search.SetBounds(toolbar.Width - S(16) - w, y, w, S(32));
+            search.SetBounds(toolbar.Width - S(16) - w, y, w, S(Theme.ControlH));
             search.Visible = toolbar.Width - x - S(32) >= S(140);
         }
 

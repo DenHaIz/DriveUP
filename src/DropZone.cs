@@ -191,8 +191,8 @@ namespace DriveUp
                 Logo.DrawArrow(g, ac, lw, new PointF(c.X, c.Y + ah * 0.22f + bob), new PointF(c.X, c.Y - ah * 0.55f + bob), ah * 0.4f);
             }
 
-            TextRenderer.DrawText(g, title, Theme.HeadFont, new Rectangle((int)tx, (int)ty, Math.Max(S(40), (int)(right - tx)), S(24)), p.Text, TextLeft);
-            TextRenderer.DrawText(g, Subtitle, Font, new Rectangle((int)sx, (int)sy, Math.Max(S(40), (int)(right - sx)), S(22)), p.TextDim, TextLeft);
+            TextDraw.DrawText(g, title, Theme.HeadFont, new RectangleF(tx, ty, Math.Max(S(40), (int)(right - tx)), S(24)), p.Text, TextLeft);
+            TextDraw.DrawText(g, Subtitle, Font, new RectangleF(sx, sy, Math.Max(S(40), (int)(right - sx)), S(22)), p.TextDim, TextLeft);
         }
 
         struct TallLayout { public float TileX, TileY, TextY, ButtonsY; }

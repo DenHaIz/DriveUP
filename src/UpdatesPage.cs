@@ -36,7 +36,7 @@ namespace DriveUp
         {
             ring.Click += (s, e) => { if (ring.Clickable) MainAction(); };
             btnMain = new FlatButton("", "\uE895", ButtonKind.Primary);
-            btnMain.SetBaseHeight(42);
+            btnMain.SetBaseHeight(44);
             btnMain.Font = Theme.UiBold;
             btnMain.Click += (s, e) => MainAction();
             Controls.Add(ring);
@@ -57,7 +57,7 @@ namespace DriveUp
             swRestore.CheckedChanged += (s, e) => { Settings.RestorePoint = swRestore.Checked; Settings.Save(); };
             swOnStart.CheckedChanged += (s, e) => { Settings.CheckOnStart = swOnStart.Checked; Settings.Save(); };
             btnShowProblems = new FlatButton("", "\uE7BA", ButtonKind.Ghost);
-            btnShowProblems.SetBaseHeight(30);
+            btnShowProblems.SetBaseHeight(32);
             btnShowProblems.Click += (s, e) => Host.ShowDevices(true);
             btnShowProblems.Visible = false;
             foreach (Control c in new Control[] { swRestore, swOnStart, info, attention, btnShowProblems }) optCard.Controls.Add(c);
@@ -81,7 +81,7 @@ namespace DriveUp
             // Same proportions as Wisp: the left column takes ~38 % and the ring fills it.
             int pad = S(16);
             int leftW = Math.Max(S(320), Math.Min(S(640), (int)(Width * 0.38)));
-            btnMain.SetBaseHeight(Height > S(760) ? 46 : 42);
+            btnMain.SetBaseHeight(Height > S(760) ? 48 : 44);
             int below = S(16) + btnMain.Height + S(10) + S(24);
             int ringSize = Math.Max(S(160), Math.Min(S(600), Math.Min(leftW, Height - pad * 2 - below - S(20))));
             int top = Math.Max(pad, (Height - ringSize - below) / 2);
@@ -121,7 +121,7 @@ namespace DriveUp
 
         void LayoutListCard()
         {
-            btnRecheck.SetBaseHeight(30);
+            btnRecheck.SetBaseHeight(32);
             btnRecheck.Location = new Point(listCard.Width - btnRecheck.Width - S(12), (listCard.TitleHeight - btnRecheck.Height) / 2);
             list.SetBounds(S(2), listCard.TitleHeight, listCard.Width - S(4), listCard.Height - listCard.TitleHeight - S(6));
         }
@@ -138,7 +138,7 @@ namespace DriveUp
                 btnShowProblems.Location = new Point(right - btnShowProblems.Width, y + (S(32) - btnShowProblems.Height) / 2);
                 right = btnShowProblems.Left - S(4);
             }
-            int aw = attention.Text.Length > 0 ? TextRenderer.MeasureText(attention.Text, attention.Font, Size.Empty, TextFormatFlags.NoPadding).Width + S(4) : 0;
+            int aw = attention.Text.Length > 0 ? TextDraw.MeasureText(attention.Text, attention.Font, Size.Empty, TextFormatFlags.NoPadding).Width + S(4) : 0;
             attention.SetBounds(right - aw, y, aw, S(32));
             right -= aw + S(12);
             info.SetBounds(x + S(2), y, Math.Max(S(60), right - x), S(32));

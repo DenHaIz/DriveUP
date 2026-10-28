@@ -7,31 +7,31 @@ using System.IO;
 namespace DriveUp
 {
     /// <summary>
-    /// The DriveUP mark: Lighter's open violet ring with an upward arrow over a base line inside
+    /// The DriveUP mark: Lighter's open ring (crimson) with an upward arrow over a base line inside
     /// ("update"), drawn with one line weight like Wisp's broom, on the dark gray tile. Used for the
     /// header, the window/taskbar icon and (via tools\MakeIcon.cs) the .exe icon; the big button on
     /// the Updates tab draws the same parts large (UpdateRing).
     /// </summary>
     static class Logo
     {
-        public static readonly Color Violet = Color.FromArgb(0x9D, 0x6B, 0xFF);
-        /// <summary>DriveUP Pro: the same mark in crimson.</summary>
-        public static readonly Color Crimson = Color.FromArgb(0xD6, 0x30, 0x4F);
-        /// <summary>Colour of the mark in this edition (the big ring on the Updates tab follows it).</summary>
-        public static Color Mark = Edition.Pro ? Crimson : Violet;
+        /// <summary>Colour of the mark: crimson, like the accent (the big ring on the Updates tab follows it).</summary>
+        public static readonly Color Mark = Color.FromArgb(0xD6, 0x30, 0x4F);
         public static readonly Color Tile = Color.FromArgb(0x2B, 0x2D, 0x31);
 
         public const float SolidStart = 270f;   // 12 o'clock (GDI angles grow clockwise from 3 o'clock)
         public const float SolidSweep = 247.4f; // ends at about 8 o'clock
 
         static Icon appIcon;
+        /// <summary>Every size Windows asks for at 100-200 % scaling (title bar, taskbar, Explorer), so it never scales one up.</summary>
+        public static readonly int[] IconSizes = { 16, 20, 24, 28, 30, 32, 36, 40, 48, 56, 60, 64, 72, 80, 96, 128, 256 };
+        static Bitmap header;
 
         public static Icon AppIcon
         {
             get
             {
                 if (appIcon == null)
-                    appIcon = new Icon(new MemoryStream(BuildIco(new[] { 16, 20, 24, 32, 40, 48, 64, 256 })));
+                    appIcon = new Icon(new MemoryStream(BuildIco(IconSizes)));
                 return appIcon;
             }
         }
@@ -39,7 +39,31 @@ namespace DriveUp
         static readonly Color TileTop = Color.FromArgb(0x33, 0x35, 0x3B);
         static readonly Color TileBottom = Color.FromArgb(0x27, 0x28, 0x2C);
 
+        /// <summary>
+        /// The tiled mark at a whole-pixel spot, from a supersampled picture (see <see cref="Render"/>):
+        /// smooth even at 32 px, where the ring is barely two pixels wide.
+        /// </summary>
+        public static void DrawSharp(Graphics g, int x, int y, int size)
+        {
+            if (header == null || header.Width != size)
+            {
+                if (header != null) header.Dispose();
+                header = Render(size);
+            }
+            var state = g.Save();
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.Half;
+            g.DrawImage(header, new Rectangle(x, y, size, size), 0, 0, size, size, GraphicsUnit.Pixel);
+            g.Restore(state);
+        }
+
         public static void Draw(Graphics g, RectangleF r, bool tile)
+        {
+            Draw(g, r, tile, 0);
+        }
+
+        /// <summary>shown: the size it ends up on screen (drawn larger to be scaled down), for the line weights.</summary>
+        public static void Draw(Graphics g, RectangleF r, bool tile, float shown)
         {
             var state = g.Save();
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -58,9 +82,10 @@ namespace DriveUp
             g.ScaleTransform(size / 256f, size / 256f);
 
             // Small icons (tray, title bar) get heavier lines so the mark survives 16 px.
-            bool small = size < 40;
-            float ringW = size < 24 ? 24 : (small ? 17 : 10);
-            float lineW = size < 24 ? 30 : (small ? 24 : 17);
+            float look = shown > 0 ? shown : size;
+            bool small = look < 40;
+            float ringW = look < 24 ? 24 : (small ? 17 : 10);
+            float lineW = look < 24 ? 30 : (small ? 24 : 17);
 
             using (var pen = new Pen(Mark, ringW) { StartCap = LineCap.Round, EndCap = LineCap.Round })
                 g.DrawArc(pen, 40, 40, 176, 176, SolidStart, SolidSweep);
@@ -126,15 +151,34 @@ namespace DriveUp
             }
         }
 
+        /// <summary>
+        /// The tiled mark, size x size: drawn 4 times larger and scaled down with a high-quality filter,
+        /// so every edge pixel is a true coverage average (GDI+'s own anti-aliasing steps on thin curves).
+        /// </summary>
         public static Bitmap Render(int size)
         {
-            var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(bmp))
+            int k = size >= 128 ? 2 : 4, big = size * k;
+            using (var hi = new Bitmap(big, big, PixelFormat.Format32bppPArgb))
             {
-                g.Clear(Color.Transparent);
-                Draw(g, new RectangleF(0, 0, size, size), true);
+                using (var g = Graphics.FromImage(hi))
+                {
+                    g.Clear(Color.Transparent);
+                    Draw(g, new RectangleF(0, 0, big, big), true, size);
+                }
+                var bmp = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+                using (var g = Graphics.FromImage(bmp))
+                using (var wrap = new ImageAttributes())
+                {
+                    g.Clear(Color.Transparent);
+                    g.CompositingMode = CompositingMode.SourceCopy;
+                    g.CompositingQuality = CompositingQuality.HighQuality;
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    wrap.SetWrapMode(WrapMode.TileFlipXY);
+                    g.DrawImage(hi, new Rectangle(0, 0, size, size), 0, 0, big, big, GraphicsUnit.Pixel, wrap);
+                }
+                return bmp;
             }
-            return bmp;
         }
 
         /// <summary>Multi-size .ico: 32-bit DIB frames for small sizes, PNG for 256.</summary>
