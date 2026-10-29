@@ -96,8 +96,14 @@ namespace DriveUp
             if (p.Length != 2 || p[0] != "1" || Family() != null) return;
             if (Reg.TestRoot != null) { Reg.SetDword(false, Families + "\\" + p[1], "x", 1); return; }
             if (!Regex.IsMatch(p[1], @"^[A-Za-z0-9.\-]+_[a-z0-9]+$")) return;
-            // A preinstalled app stays on the disk for new users: registered again from there, as it was.
-            try { PowerShell("Add-AppxPackage -RegisterByFamilyName -MainPackage '" + p[1] + "' -ErrorAction Stop"); }
+            // A preinstalled app stays on the disk for new users: registered again from there, as it was
+            // (for the person at the desktop, by a PowerShell running as them, when DriveUP runs as another account).
+            string command = "Add-AppxPackage -RegisterByFamilyName -MainPackage '" + p[1] + "' -ErrorAction Stop";
+            try
+            {
+                if (DesktopUser.Other) UserShell.RunAsUser(PowerShellExe, Args(command), 180000);
+                else PowerShell(command);
+            }
             catch { }
             // Not on this computer any more: its Store page opens for the user (with the user's rights).
             if (Family() == null) UserShell.OpenUrl("ms-windows-store://pdp/?PFN=" + p[1]);
@@ -116,15 +122,22 @@ namespace DriveUp
                 using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(Reg.TestRoot + @"\HKCU\" + Families, true)) if (k != null) k.DeleteSubKeyTree(f, false);
                 return;
             }
-            string err = PowerShell("Get-AppxPackage | Where-Object { $_.PackageFamilyName -eq '" + f + "' } | Remove-AppxPackage -ErrorAction Stop");
+            // Elevated as another account: the person at the desktop's copy, by their SID.
+            string who = DesktopUser.OtherSid;
+            if (who != null && !Regex.IsMatch(who, @"^S-1-[0-9\-]+$")) throw new InvalidOperationException("SID");
+            string err = who == null
+                ? PowerShell("Get-AppxPackage | Where-Object { $_.PackageFamilyName -eq '" + f + "' } | Remove-AppxPackage -ErrorAction Stop")
+                : PowerShell("Get-AppxPackage -User '" + who + "' | Where-Object { $_.PackageFamilyName -eq '" + f + "' } | ForEach-Object { Remove-AppxPackage -Package $_.PackageFullName -User '" + who + "' -ErrorAction Stop }");
             if (Family() != null) throw new InvalidOperationException(err.Length > 0 ? err.Split('\n')[0].Trim() : L.T("не удалось удалить", "could not remove"));
         }
 
         /// <summary>Runs one PowerShell command without a window; returns what it wrote to stderr.</summary>
+        static string PowerShellExe { get { return System.IO.Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"); } }
+        static string Args(string command) { return "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + command + "\""; }
+
         static string PowerShell(string command)
         {
-            string ps = System.IO.Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
-            var psi = new ProcessStartInfo(ps, "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + command + "\"")
+            var psi = new ProcessStartInfo(PowerShellExe, Args(command))
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
             using (var p = Process.Start(psi))
             {

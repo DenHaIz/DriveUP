@@ -25,6 +25,8 @@ namespace DriveUp
         float compact;
         bool reading, installing;
         string lastFolder;
+        /// <summary>Downloads that arrived while files were read or drivers installed: added right after.</summary>
+        readonly List<DownloadJob> waiting = new List<DownloadJob>();
 
         public InstallPage(IHost host) : base(host)
         {
@@ -67,12 +69,15 @@ namespace DriveUp
             Controls.Add(listHost);
 
             Resize += (s, e) => LayoutPage();
+            Downloads.Finished += job => { if (!IsDisposed && job.State == DownloadState.Done) Receive(job); };
             Inventory.Changed += () =>
             {
                 // New devices (after an install or a rescan) may change what each driver is for.
                 if (IsDisposed || installing || reading || drivers.Count == 0) return;
                 foreach (var d in drivers)
                 {
+                    // An installer's device is the one the vendor named; it has no hardware IDs to match.
+                    if (d.IsInstaller) continue;
                     d.Matches.Clear();
                     if (d.WrongArch) continue;
                     foreach (var dev in Inventory.Devices)
@@ -208,8 +213,61 @@ namespace DriveUp
             }
         }
 
+        /// <summary>
+        /// A driver the download queue fetched: a .cab / .zip is unpacked into the list like a dropped file
+        /// (without a toast of its own), a vendor's installer becomes a row of its own. It waits while
+        /// another read or an install runs.
+        /// </summary>
+        void Receive(DownloadJob job)
+        {
+            if (drivers.Any(d => d.Job == job)) return;
+            if (reading || installing)
+            {
+                if (!waiting.Contains(job)) waiting.Add(job);
+                return;
+            }
+            if (!job.IsInstaller)
+            {
+                AddPaths(new[] { job.File }, job);
+                return;
+            }
+            var v = job.Update;
+            Version ver;
+            var row = new InfDriver
+            {
+                Path = job.File, Name = v.Title, ClassName = L.T("Установщик производителя", "Vendor's installer"), Provider = v.Vendor,
+                VersionText = v.VersionText, Date = v.Date, IsDevice = true, IsChecked = true, Job = job,
+                ClassGuid = v.Device != null ? v.Device.ClassGuid : "",
+                Version = Version.TryParse(v.VersionText, out ver) ? ver : null,
+            };
+            if (v.Device != null) row.Matches.Add(v.Device);
+            Inventory.EnsureClassIcon(row.ClassGuid);
+            drivers.Add(row);
+            if (compact < 0.01f) Render();
+            else Transition.CrossFade(listHost, Render, 260);
+            SetCompact(true);
+            UpdateButtons();
+        }
+
+        /// <summary>Takes the downloads that waited for a read or an install to end.</summary>
+        void TakeWaiting()
+        {
+            while (waiting.Count > 0 && !reading && !installing)
+            {
+                var job = waiting[0];
+                waiting.RemoveAt(0);
+                Receive(job);
+            }
+        }
+
         /// <summary>Loads drivers from folders/files; called by drops, pickers and "restore from backup".</summary>
         public void AddPaths(string[] paths)
+        {
+            AddPaths(paths, null);
+        }
+
+        /// <summary>from: the download it came from (no toast of its own then: the queue reports).</summary>
+        void AddPaths(string[] paths, DownloadJob from)
         {
             if (paths.Length == 0) return;
             if (reading || installing)
@@ -241,16 +299,21 @@ namespace DriveUp
                 foreach (var f in infs)
                 {
                     if (known.Contains(f)) continue;
-                    try { found.Add(InfFiles.Parse(f, devices)); }
+                    try
+                    {
+                        var parsed = InfFiles.Parse(f, devices);
+                        parsed.Job = from;
+                        found.Add(parsed);
+                    }
                     catch (Exception ex) { errors.Add(Path.GetFileName(f) + ": " + ex.Message); }
                 }
-                Post(() => Added(found, installers, errors));
+                Post(() => Added(found, installers, errors, from != null));
             }) { IsBackground = true };
             th.SetApartmentState(ApartmentState.STA);
             th.Start();
         }
 
-        void Added(List<InfDriver> found, List<string> installers, List<string> errors)
+        void Added(List<InfDriver> found, List<string> installers, List<string> errors, bool quiet)
         {
             reading = false;
             drop.Busy = false;
@@ -267,7 +330,11 @@ namespace DriveUp
             UpdateButtons();
 
             int fits = found.Count(d => d.Matches.Count > 0);
-            if (found.Count > 0)
+            if (quiet)
+            {
+                if (found.Count == 0) Host.ShowToast(L.T("В скачанном пакете нет драйверов (.inf)", "The downloaded package has no drivers (.inf)"), ToastKind.Info);
+            }
+            else if (found.Count > 0)
                 Host.ShowToast(L.T("Найдено ", "Found ") + L.Count(found.Count, "драйвер", "драйвера", "драйверов", "driver", "drivers") +
                     (fits > 0 ? L.T(" · подходят устройствам: ", " · suit devices: ") + fits : L.T(" · подходящих устройств нет", " · no matching devices")),
                     fits > 0 ? ToastKind.Success : ToastKind.Info);
@@ -290,6 +357,7 @@ namespace DriveUp
                     catch (Exception ex) { Host.ShowToast(ex.Message, ToastKind.Error); }
                 }
             }
+            TakeWaiting();
         }
 
         /// <summary>The user chose not to install without a restore point: everything stays as it was.</summary>
@@ -300,6 +368,7 @@ namespace DriveUp
             foreach (var d in queue) { d.State = InfState.Ready; UpdateRow(d); }
             UpdateButtons();
             Host.ShowToast(L.T("Установка отменена — ничего не изменено", "Install cancelled — nothing changed"), ToastKind.Info);
+            TakeWaiting();
         }
 
         void ClearList()
@@ -382,10 +451,17 @@ namespace DriveUp
             if (queue.Count == 0 || installing || !Host.CanStartOperation()) return;
             // Drivers run in the kernel: say what is about to be installed and from where.
             var sources = queue.Select(d => d.Provider.Length > 0 ? d.Provider : L.T("поставщик не указан", "no provider")).Distinct().Take(4).ToList();
-            var folders = queue.Select(d => System.IO.Path.GetDirectoryName(d.Path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var folders = queue.Where(d => d.Job == null).Select(d => System.IO.Path.GetDirectoryName(d.Path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var setups = queue.Where(d => d.IsInstaller).ToList();
+            int fromQueue = queue.Count(d => d.Job != null && !d.IsInstaller);
+            string where = (folders.Count > 0 ? L.T("Папка: ", "Folder: ") + (folders.Count == 1 ? folders[0] : folders[0] + L.T(" и ещё ", " and ") + (folders.Count - 1)) + "\n" : "") +
+                (fromQueue > 0 ? L.T("Скачано с Microsoft Update и сайтов производителей: ", "Downloaded from Microsoft Update and vendors' sites: ") + fromQueue + "\n" : "") +
+                (setups.Count > 0 ? L.T("Установщики производителей (подпись проверена): ", "Vendors' installers (signature checked): ") +
+                    string.Join(", ", setups.Select(d => d.Job.Signer.Length > 0 ? d.Job.Signer : d.Provider).Distinct()) + "\n" +
+                    (setups.Any(d => d.Job.Update.SilentArgs == null) ? L.T("Некоторые откроют своё окно — пройдите его шаги.\n", "Some open their own window — follow its steps.\n") : "") : "");
             if (!ThemedDialog.Confirm(Host.Window, L.T("Установить драйверы?", "Install the drivers?"),
                     L.Count(queue.Count, "драйвер", "драйвера", "драйверов", "driver", "drivers") + L.T(" от: ", " from: ") + string.Join(", ", sources) + "\n" +
-                    L.T("Папка: ", "Folder: ") + (folders.Count == 1 ? folders[0] : folders[0] + L.T(" и ещё ", " and ") + (folders.Count - 1)) + "\n\n" +
+                    where + "\n" +
                     L.T("Устанавливайте драйверы только из источников, которым доверяете.", "Install drivers only from sources you trust."),
                     L.T("Установить", "Install"), "\uE896", false))
                 return;
@@ -422,9 +498,14 @@ namespace DriveUp
                         summary.SetText(L.T("Установка: ", "Installing: ") + drv.Name);
                     });
                     bool rb = false;
-                    string prepError;
-                    string path = InfFiles.Prepare(drv, copies, out prepError);
-                    int code = path != null ? InfFiles.Install(path, owner, out rb) : -1;
+                    string prepError = null;
+                    int code;
+                    if (drv.IsInstaller) code = VendorInstall.RunInstaller(drv.Job.Update, drv.Path, out rb, out prepError) ? 0 : -1;
+                    else
+                    {
+                        string path = InfFiles.Prepare(drv, copies, out prepError);
+                        code = path != null ? InfFiles.Install(path, owner, out rb) : -1;
+                    }
                     if (rb) reboot = true;
                     RunUI(() =>
                     {
@@ -465,6 +546,7 @@ namespace DriveUp
             Journal.Add(JournalKind.Install, ok + staged, failed.Count,
                 string.Join(", ", queue.Select(d => d.Name + " " + d.VersionText + " — " + d.StateText)));
             UpdateButtons();
+            TakeWaiting();
 
             string text;
             if (ok > 0) text = L.T("Установлено драйверов: ", "Drivers installed: ") + ok + (staged > 0 ? L.T(" · в хранилище: ", " · stored: ") + staged : "");

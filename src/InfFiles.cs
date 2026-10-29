@@ -29,6 +29,9 @@ namespace DriveUp
         public bool IsChecked;
         public InfState State;
         public string Error = "";
+        /// <summary>From the download queue (Updates tab); a vendor's installer is run instead of an .inf.</summary>
+        public DownloadJob Job;
+        public bool IsInstaller { get { return Job != null && Job.IsInstaller; } }
 
         public string FitText
         {
@@ -36,7 +39,7 @@ namespace DriveUp
             {
                 if (WrongArch) return L.T("Не для этой системы", "Not for this system");
                 if (!IsDevice) return L.T("Не драйвер устройства", "Not a device driver");
-                if (Matches.Count == 0) return L.T("Нет подходящих устройств", "No matching devices");
+                if (Matches.Count == 0) return IsInstaller ? L.T("Этот компьютер", "This PC") : L.T("Нет подходящих устройств", "No matching devices");
                 string first = Matches[0].Name;
                 return Matches.Count == 1 ? first : first + L.T(" и ещё ", " and ") + (Matches.Count - 1);
             }
@@ -52,7 +55,7 @@ namespace DriveUp
                     case InfState.Installed: return L.T("Установлен", "Installed");
                     case InfState.Staged: return L.T("Добавлен в хранилище", "Added to the store");
                     case InfState.Failed: return Error;
-                    default: return Matches.Count > 0 ? L.T("Готов к установке", "Ready to install") : L.T("Добавится в хранилище", "Goes to the store");
+                    default: return Matches.Count > 0 || IsInstaller ? L.T("Готов к установке", "Ready to install") : L.T("Добавится в хранилище", "Goes to the store");
                 }
             }
         }

@@ -258,10 +258,18 @@ namespace DriveUp
         /// <summary>Shown in the size column instead of a size (link rows: the vendor).</summary>
         public string Badge;
         /// <summary>
-        /// Link rows: the badge becomes a button that calls this (e.g. "download and install"); the rest
+        /// Link rows: the badge becomes a button that calls this (e.g. "download"); the rest
         /// of the row still calls Open.
         /// </summary>
         public Action Act;
+        /// <summary>
+        /// A link row that can also be ticked (several drivers downloaded at once): its check box ticks it,
+        /// the rest of the row still calls Open. Counted with the group's check box, like a check row.
+        /// </summary>
+        public bool Pick;
+
+        /// <summary>Has a check box (a check row, or a link row that can be ticked).</summary>
+        public bool Tickable { get { return Open == null || Pick; } }
     }
 
     class CatGroup
@@ -277,7 +285,7 @@ namespace DriveUp
             get
             {
                 long s = 0;
-                foreach (var i in Items) if (i.Checked && !i.Disabled && i.Open == null && i.Size > 0) s += i.Size;
+                foreach (var i in Items) if (i.Checked && !i.Disabled && i.Tickable && i.Size > 0) s += i.Size;
                 return s;
             }
         }
@@ -569,18 +577,19 @@ namespace DriveUp
                 item.Act();
                 return;
             }
-            if (part == Part.Item && item != null && item.Open != null)
+            // A link row that can be ticked: its check box ticks it, the rest of the row opens.
+            if (part == Part.Item && item != null && item.Open != null && !(item.Pick && e.X < S(78)))
             {
                 item.Open();
                 return;
             }
-            if (part == Part.GroupCheck && g != null && !g.Items.Exists(i => i.Open == null && !i.Disabled)) part = Part.GroupBody;
+            if (part == Part.GroupCheck && g != null && !g.Items.Exists(i => i.Tickable && !i.Disabled)) part = Part.GroupBody;
             if (Locked && (part == Part.GroupCheck || part == Part.Item)) return;
             if (part == Part.GroupCheck && g != null)
             {
                 bool all = true;
-                foreach (var i in g.Items) if (!i.Disabled && !i.Checked) all = false;
-                foreach (var i in g.Items) if (!i.Disabled) { i.Checked = !all; AnimateCheck(i); }
+                foreach (var i in g.Items) if (!i.Disabled && i.Tickable && !i.Checked) all = false;
+                foreach (var i in g.Items) if (!i.Disabled && i.Tickable) { i.Checked = !all; AnimateCheck(i); }
                 if (CheckedChanged != null) CheckedChanged(this, EventArgs.Empty);
             }
             else if (part == Part.GroupBody && g != null)
@@ -728,7 +737,7 @@ namespace DriveUp
             foreach (var i in grp.Items)
             {
                 if (i.Open != null) links = true;
-                if (i.Disabled || i.Open != null) continue;
+                if (i.Disabled || !i.Tickable) continue;
                 total++;
                 if (i.Checked) on++;
                 sum += Get(check, i);
@@ -753,7 +762,9 @@ namespace DriveUp
             TextDraw.DrawText(g, grp.Desc(), Theme.SmallFont, new RectangleF(tx, y + S(30), titleR.Width, S(18)), p.TextDim, TextLeft);
 
             bool measured = grp.Measured;
-            string size = linkGroup ? "" : (measured ? SizeText(grp.CheckedSize) : "…");
+            // Download rows: a size only once something with a known size is ticked (vendors rarely tell it).
+            bool picks = grp.Items.Exists(i => i.Pick);
+            string size = linkGroup || (picks && grp.CheckedSize == 0) ? "" : (measured ? SizeText(grp.CheckedSize) : "…");
             TextDraw.DrawText(g, size, Theme.UiBold, new RectangleF(w - sizeW - S(40), y, sizeW, GroupH),
                 on == 0 ? p.TextDim : p.Text, TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
 
@@ -779,7 +790,7 @@ namespace DriveUp
             Color text = item.Disabled ? Anim.Blend(p.TextDim, bg, 0.3f) : p.Text;
             text = Anim.Blend(bg, text, ex);
 
-            if (item.Open != null)
+            if (!item.Tickable)
                 GlyphShape.Draw(g, "\uE8A7", new PointF(S(60), y + ItemH / 2f), S(14),
                     Anim.Blend(bg, Anim.Blend(p.TextDim, p.Accent, 0.55f + 0.45f * h), ex), Math.Max(0.6f, S(1) * 0.8f));
             else
@@ -796,6 +807,13 @@ namespace DriveUp
             int maxName = w - x - sizeW - S(48);
             TextDraw.DrawText(g, name, Font, new RectangleF(x, y, maxName, ItemH), text, TextLeft);
             x += Math.Min(maxName, MeasureWidth(name, Font)) + S(10);
+            if (item.Pick && item.Open != null && x < w - sizeW - S(48))
+            {
+                // The rest of the row opens the driver's page: the link mark says so, brighter under the mouse.
+                GlyphShape.Draw(g, "\uE8A7", new PointF(x + S(6), y + ItemH / 2f), S(12),
+                    Anim.Blend(bg, Anim.Blend(p.TextDim, p.Accent, 0.4f + 0.6f * h), ex * (0.55f + 0.45f * h)), Math.Max(0.6f, S(1) * 0.75f));
+                x += S(12) + S(10);
+            }
             if (item.Warn)
             {
                 int d = S(7);

@@ -17,7 +17,7 @@ namespace DriveUp
         readonly Segmented themeSwitch;
         readonly FlatButton btnLang, btnJournal;
         readonly ToolTip tip = new ToolTip();
-        readonly LoadingBar loadBar = new LoadingBar();
+        readonly BusyRing busyRing = new BusyRing();
         readonly StatusText status = new StatusText();
         readonly Toast toast = new Toast();
         readonly UpdatesPage updatesPage;
@@ -72,9 +72,6 @@ namespace DriveUp
             header.Controls.Add(themeSwitch);
             header.Resize += (s, e) => LayoutHeader();
 
-            loadBar.Dock = DockStyle.Top;
-            loadBar.Height = S(2);
-
             // ----- pages: not docked (docking skips hidden controls); sized by hand -----
             updatesPage = new UpdatesPage(this);
             devicesPage = new DevicesPage(this);
@@ -104,13 +101,14 @@ namespace DriveUp
             btnJournal.Click += (s, e) => JournalForm.ShowFor(this);
             footer.Controls.Add(status);
             footer.Controls.Add(btnJournal);
+            busyRing.Size = new Size(S(18), S(18));
+            footer.Controls.Add(busyRing);
             footer.Resize += (s, e) => LayoutFooter();
 
             // Docking: later-added controls are docked first (outermost).
             root.Dock = DockStyle.Fill;
             root.Controls.Add(content);
             root.Controls.Add(footer);
-            root.Controls.Add(loadBar);
             root.Controls.Add(header);
             root.Controls.Add(toast);
             root.Resize += (s, e) => toast.Reposition(ToastAnchor());
@@ -177,7 +175,7 @@ namespace DriveUp
         {
             var p = Theme.Current;
             BackColor = p.Bg;
-            foreach (Control c in new Control[] { root, header, content, pageHost, footer, loadBar })
+            foreach (Control c in new Control[] { root, header, content, pageHost, footer })
                 c.BackColor = p.Bg;
             foreach (var page in pages) page.ApplyTheme();
             if (IsHandleCreated) Theme.ApplyTitleBar(Handle);
@@ -385,7 +383,7 @@ namespace DriveUp
             Rescale(root);
             header.Height = S(60);
             tabBar.Height = header.Height;
-            loadBar.Height = S(2);
+            busyRing.Size = new Size(S(18), S(18));
             footer.Height = S(40);
             root.ResumeLayout(true);
             foreach (var p in pages) p.Bounds = pageHost.ClientRectangle;
@@ -426,7 +424,9 @@ namespace DriveUp
         {
             status.SetBounds(S(18), 0, status.Width, footer.Height);
             btnJournal.Location = new Point(footer.Width - btnJournal.Width - S(16), (footer.Height - btnJournal.Height) / 2);
-            status.Width = Math.Max(S(100), btnJournal.Left - status.Left - S(12));
+            // The busy ring sits just left of the Journal button: nothing else moves when it appears.
+            busyRing.Location = new Point(btnJournal.Left - S(10) - busyRing.Width, (footer.Height - busyRing.Height) / 2);
+            status.Width = Math.Max(S(100), busyRing.Left - status.Left - S(12));
         }
 
         Point ToastAnchor()
@@ -447,12 +447,12 @@ namespace DriveUp
 
         public void BeginBusy()
         {
-            if (busy++ == 0) loadBar.Start();
+            if (busy++ == 0) busyRing.Start();
         }
 
         public void EndBusy()
         {
-            if (busy > 0 && --busy == 0) loadBar.Stop();
+            if (busy > 0 && --busy == 0) busyRing.Stop();
         }
 
         public void ShowDevices(bool attention)

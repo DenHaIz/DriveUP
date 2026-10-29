@@ -753,26 +753,33 @@ namespace DriveUp
         }
     }
 
-    /// <summary>Thin indeterminate progress line shown while data is loading.</summary>
-    class LoadingBar : SkinControl
+    /// <summary>
+    /// A small ring that turns in the footer while something loads: calmer than a bar running across the
+    /// top of the window. It fades in and out, turns at an even pace and its arc slowly grows and shrinks.
+    /// </summary>
+    class BusyRing : SkinControl
     {
         readonly Tweened alpha;
         readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         readonly object frameKey = new object();
         bool active;
 
-        public LoadingBar()
+        public BusyRing()
         {
             alpha = new Tweened(Invalidate);
         }
 
+        public bool Active { get { return active; } }
+
         public void Start()
         {
+            if (active) return;
             active = true;
-            alpha.To(1, 200);
+            alpha.To(1, 320);
             Anim.Frame(frameKey, () =>
             {
-                Invalidate();
+                if (IsDisposed) return false;
+                if (Visible) Invalidate();
                 return active || alpha.Value > 0.01f;
             });
         }
@@ -780,21 +787,31 @@ namespace DriveUp
         public void Stop()
         {
             active = false;
-            alpha.To(0, 400);
+            alpha.To(0, 480);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            Color pb = ParentBg;
-            g.Clear(pb);
-            if (alpha.Value <= 0.01f) return;
-            float phase = (clock.ElapsedMilliseconds % 1400) / 1400f;
-            float eased = Anim.EaseInOut(phase);
-            float w = Width * 0.35f;
-            float x = -w + eased * (Width + w);
-            using (var b = new SolidBrush(Anim.Blend(pb, Theme.Current.Accent, alpha.Value)))
-                g.FillRectangle(b, x, 0, w, Height);
+            Color bg = ParentBg;
+            g.Clear(bg);
+            float a = alpha.Value;
+            if (a <= 0.01f) return;
+            var p = Theme.Current;
+            double t = clock.Elapsed.TotalMilliseconds;
+            // One turn in 1.5 s; the arc breathes between a quarter and two thirds of the circle every 2.6 s.
+            float turn = (float)(t % 1500 / 1500 * 360);
+            float k = (float)(0.5 - 0.5 * Math.Cos(t % 2600 / 2600 * 2 * Math.PI));
+            float sweep = 80 + 160 * k;
+            float w = Math.Max(1.6f, S(2) * 0.95f);
+            float d = Math.Min(Width, Height) - w - S(2);
+            var r = new RectangleF((Width - d) / 2f, (Height - d) / 2f, d, d);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var track = new Pen(Anim.Blend(bg, p.Border, a), w))
+                g.DrawEllipse(track, r);
+            using (var pen = new Pen(Anim.Blend(bg, p.Accent, a), w) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                g.DrawArc(pen, r, turn - sweep / 2 - 90, sweep);
+            g.SmoothingMode = SmoothingMode.None;
         }
     }
 

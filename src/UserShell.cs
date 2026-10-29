@@ -36,6 +36,7 @@ namespace DriveUp
         [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool CloseHandle(IntPtr h);
         [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr h, uint ms);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr h, out int code);
         [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
         [DllImport("advapi32.dll", SetLastError = true)]
         static extern bool DuplicateTokenEx(IntPtr token, uint access, IntPtr attrs, int level, int type, out IntPtr newToken);
@@ -59,9 +60,14 @@ namespace DriveUp
         /// </summary>
         public static IntPtr StartAsUser(string exe, string args, bool wantHandle)
         {
+            return StartAsUser(exe, args, wantHandle, false);
+        }
+
+        static IntPtr StartAsUser(string exe, string args, bool wantHandle, bool hidden)
+        {
             if (!IsElevated)
             {
-                var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false });
+                var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = hidden });
                 if (!wantHandle || p == null) return IntPtr.Zero;
                 return OpenProcess(0x00100000 /* SYNCHRONIZE */, false, p.Id);
             }
@@ -81,7 +87,7 @@ namespace DriveUp
                 PROCESS_INFORMATION pi;
                 var cmd = new StringBuilder("\"" + exe + "\"" + (string.IsNullOrEmpty(args) ? "" : " " + args));
                 string dir = Path.IsPathRooted(exe) ? Path.GetDirectoryName(exe) : null;
-                if (!CreateProcessWithTokenW(primary, 0, null, cmd, 0, IntPtr.Zero, dir, ref si, out pi))
+                if (!CreateProcessWithTokenW(primary, 0, null, cmd, hidden ? 0x08000000 /* CREATE_NO_WINDOW */ : 0, IntPtr.Zero, dir, ref si, out pi))
                     throw new Win32Exception();
                 CloseHandle(pi.hThread);
                 if (wantHandle) return pi.hProcess;
@@ -91,6 +97,47 @@ namespace DriveUp
             finally
             {
                 if (primary != IntPtr.Zero) CloseHandle(primary);
+                if (token != IntPtr.Zero) CloseHandle(token);
+                CloseHandle(proc);
+            }
+        }
+
+        /// <summary>Runs a console program as the signed-in user, without a window, and waits for it (exit code; -1 when it did not end in time).</summary>
+        public static int RunAsUser(string exe, string args, int timeoutMs)
+        {
+            IntPtr h = StartAsUser(exe, args, true, true);
+            if (h == IntPtr.Zero) return -1;
+            try
+            {
+                if (WaitForSingleObject(h, (uint)timeoutMs) != 0) return -1;
+                int code;
+                return GetExitCodeProcess(h, out code) ? code : -1;
+            }
+            finally { CloseHandle(h); }
+        }
+
+        /// <summary>The account that owns the desktop (Explorer's token): SID and "DOMAIN\name"; null when Explorer is not running.</summary>
+        public static string ShellUser(out string name)
+        {
+            name = "";
+            IntPtr shell = GetShellWindow();
+            if (shell == IntPtr.Zero) return null;
+            int pid;
+            GetWindowThreadProcessId(shell, out pid);
+            IntPtr proc = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+            if (proc == IntPtr.Zero) return null;
+            IntPtr token = IntPtr.Zero;
+            try
+            {
+                if (!OpenProcessToken(proc, 0x0008 /* TOKEN_QUERY */, out token)) return null;
+                using (var id = new WindowsIdentity(token))
+                {
+                    name = id.Name ?? "";
+                    return id.User != null ? id.User.Value : null;
+                }
+            }
+            finally
+            {
                 if (token != IntPtr.Zero) CloseHandle(token);
                 CloseHandle(proc);
             }
@@ -122,6 +169,58 @@ namespace DriveUp
         public static void Explore(string args)
         {
             StartAsUser(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"), args, false);
+        }
+    }
+
+    /// <summary>
+    /// The person signed in at the desktop. DriveUP elevated with another account's password ("over the
+    /// shoulder" UAC: a standard user, an administrator types the password) runs as that administrator, so
+    /// its HKCU, startup folder and Store apps would be the administrator's. Then per-user settings are read
+    /// and changed in the desktop user's own hive (HKEY_USERS\SID) and folders instead.
+    /// </summary>
+    static class DesktopUser
+    {
+        static bool read;
+        static string sid, name = "", profile;
+
+        static void Read()
+        {
+            if (read) return;
+            read = true;
+            try
+            {
+                string shellName;
+                string shellSid = UserShell.ShellUser(out shellName);
+                string mine = WindowsIdentity.GetCurrent().User.Value;
+                if (shellSid == null || string.Equals(shellSid, mine, StringComparison.OrdinalIgnoreCase)) return;
+                using (var k = Microsoft.Win32.Registry.Users.OpenSubKey(shellSid))
+                    if (k == null) return;   // the hive is not loaded: nothing to do there
+                sid = shellSid;
+                name = shellName;
+                using (var p = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\" + shellSid))
+                    if (p != null) profile = Environment.ExpandEnvironmentVariables(Convert.ToString(p.GetValue("ProfileImagePath")));
+            }
+            catch { sid = null; }
+        }
+
+        /// <summary>The desktop user's SID when it is not the account DriveUP runs as; null otherwise.</summary>
+        public static string OtherSid { get { Read(); return sid; } }
+        public static bool Other { get { return OtherSid != null; } }
+        /// <summary>"PC\anna" (empty when the same account).</summary>
+        public static string Name { get { Read(); return sid != null ? name : ""; } }
+
+        /// <summary>The desktop user's own startup folder (as set in their User Shell Folders).</summary>
+        public static string StartupFolder()
+        {
+            if (!Other) return Environment.GetFolderPath(Environment.SpecialFolder.Startup);
+            string home = profile ?? "";
+            string raw = Reg.Get(false, @"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders", "Startup") as string;
+            if (string.IsNullOrEmpty(raw)) raw = @"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup";
+            string appData = Reg.Get(false, @"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders", "AppData") as string;
+            if (string.IsNullOrEmpty(appData)) appData = @"%USERPROFILE%\AppData\Roaming";
+            Func<string, string> expand = s => System.Text.RegularExpressions.Regex.Replace(s, "%USERPROFILE%", home.Replace("$", "$$"), System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            raw = System.Text.RegularExpressions.Regex.Replace(raw, "%APPDATA%", expand(appData).Replace("$", "$$"), System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return home.Length == 0 && raw.IndexOf("%USERPROFILE%", StringComparison.OrdinalIgnoreCase) >= 0 ? "" : expand(raw);
         }
     }
 }

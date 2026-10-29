@@ -134,11 +134,13 @@ namespace DriveUp
 
         static readonly List<Extra> extras = new List<Extra>();
 
-        static void Background(string family, int level, string ru, string en, Func<string> reason, Func<string> warn, params string[] processes)
+        static Extra Background(string family, int level, string ru, string en, Func<string> reason, Func<string> warn, params string[] processes)
         {
             var t = new BackgroundApp(family) { Name = () => L.T(ru, en), Processes = processes };
             Catalog.Add(t);
-            extras.Add(new Extra { Tweak = t, Value = "0", Level = level, Reason = reason, Warn = warn });
+            var x = new Extra { Tweak = t, Value = "0", Level = level, Reason = reason, Warn = warn };
+            extras.Add(x);
+            return x;
         }
 
         static void ExtraService(string name, string value, int level, Func<string> title, Func<string> reason, Func<string> warn = null, Func<Machine, bool> when = null, string[] modes = null)
@@ -314,6 +316,26 @@ namespace DriveUp
                 () => L.T("уведомлений о письмах не будет, пока Outlook закрыт", "no mail notifications while Outlook is closed"), "olk");
             Background("MicrosoftWindows.CrossDevice_cw5n1h2txyewy", 3, "Телефон в меню «Пуск»", "Phone in the Start menu", () => L.T("Держит связь с телефоном для панели в «Пуске»", "Keeps the phone connected for the Start menu panel"),
                 () => L.T("панель телефона в «Пуске» не будет обновляться", "the phone panel in Start stops updating"), "CrossDeviceService");
+            // 1.6: more apps that stay in the background while closed.
+            Background("Microsoft.ZuneMusic_8wekyb3d8bbwe", 1, "Медиаплеер", "Media Player", () => L.T("Обновляет медиатеку в фоне; открывается как обычно", "Refreshes its library in the background; opens as usual"), null, "Microsoft.Media.Player");
+            Background("Microsoft.PowerAutomateDesktop_8wekyb3d8bbwe", 1, "Power Automate", "Power Automate", () => L.T("Откроется, когда понадобится", "Opens when you need it"), null, "PAD.Console.Host");
+            Background("MicrosoftCorporationII.QuickAssist_8wekyb3d8bbwe", 1, "Быстрая помощь", "Quick Assist", () => L.T("Откроется, когда понадобится", "Opens when you need it"), null, "QuickAssist");
+            Background("Disney.37853FC22B2CE_6rarf9sa4v8jt", 1, "Disney+", "Disney+", () => L.T("Видеосервису не нужно работать в фоне", "A video service need not run in the background"), null);
+            Background("4DF9E0F8.Netflix_mcm4njqhnhss8", 1, "Netflix", "Netflix", () => L.T("Видеосервису не нужно работать в фоне", "A video service need not run in the background"), null);
+            Background("AmazonVideo.PrimeVideo_pwbj9vvecjh7j", 1, "Prime Video", "Prime Video", () => L.T("Видеосервису не нужно работать в фоне", "A video service need not run in the background"), null);
+            Background("BytedancePte.Ltd.TikTok_6yccndn6064se", 1, "TikTok", "TikTok", () => L.T("Подгружает ленту в фоне", "Loads its feed in the background"), null);
+            Background("Facebook.InstagramBeta_8xx8rvfyw5nnt", 1, "Instagram", "Instagram", () => L.T("Подгружает ленту в фоне", "Loads its feed in the background"), null);
+            Background("SpotifyAB.SpotifyMusic_zpdnekdrzrea0", 2, "Spotify", "Spotify", () => L.T("Держит процессы в фоне, пока закрыт", "Keeps processes in the background while closed"), null, "Spotify");
+            Background("Microsoft.XboxGamingOverlay_8wekyb3d8bbwe", 2, "Xbox Game Bar", "Xbox Game Bar", () => L.T("Оверлей держит процессы в фоне; Win+G открывает его как обычно", "The overlay keeps processes in the background; Win+G opens it as usual"), null,
+                "GameBar", "GameBarFTServer").Modes = new[] { "work", "quiet" };
+            Background("Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe", 3, "Записки", "Sticky Notes", () => L.T("Синхронизирует заметки в фоне", "Syncs notes in the background"),
+                () => L.T("заметки синхронизируются, только пока записки открыты", "notes sync only while Sticky Notes is open"), "Microsoft.Notes");
+            Background("5319275A.WhatsAppDesktop_cv1g1gvanyjgm", 3, "WhatsApp", "WhatsApp", () => L.T("Мессенджер держит соединение в фоне", "The messenger keeps a connection in the background"),
+                () => L.T("сообщения придут, только пока WhatsApp открыт", "messages arrive only while WhatsApp is open"), "WhatsApp");
+            Background("TelegramMessengerLLP.TelegramDesktop_t4vj0pshhgkwm", 3, "Telegram", "Telegram", () => L.T("Мессенджер держит соединение в фоне", "The messenger keeps a connection in the background"),
+                () => L.T("сообщения придут, только пока Telegram открыт", "messages arrive only while Telegram is open"), "Telegram");
+            Background("MSTeams_8wekyb3d8bbwe", 3, "Microsoft Teams", "Microsoft Teams", () => L.T("Держит соединение и процессы браузерного движка в фоне", "Keeps a connection and browser engine processes in the background"),
+                () => L.T("звонки и сообщения придут, только пока Teams открыт", "calls and messages arrive only while Teams is open"), "ms-teams", "msedgewebview2");
             ExtraService("WMPNetworkSvc", "disabled", 1, () => L.T("Сетевой доступ Windows Media Player", "Windows Media Player network sharing"),
                 () => L.T("Раздача медиатеки по сети, почти никому не нужна", "Shares the media library on the network; hardly anyone needs it"));
             ExtraService("ESRV_SVC_QUEENCREEK", "disabled", 1, () => L.T("Intel: программа улучшения (телеметрия)", "Intel computing improvement (telemetry)"),
@@ -337,7 +359,7 @@ namespace DriveUp
             ExtraService("SupportAssistAgent", "manual", 3, () => "Dell SupportAssist",
                 () => L.T("Постоянно проверяет компьютер в фоне", "Keeps checking the PC in the background"),
                 () => L.T("SupportAssist будет проверять компьютер, только когда вы его откроете", "SupportAssist checks the PC only when you open it"));
-            foreach (var hp in new[] { new[] { "HPAppHelperCap", "App Helper" }, new[] { "HPDiagsCap", "Diagnostics" }, new[] { "HPSysInfoCap", "System Info" } })
+            foreach (var hp in new[] { new[] { "HPAppHelperCap", "App Helper" }, new[] { "HPDiagsCap", "Diagnostics" }, new[] { "HPSysInfoCap", "System Info" }, new[] { "HPNetworkCap", "Network" } })
                 ExtraService(hp[0], "manual", 3, () => "HP " + hp[1] + " HSA Service",
                     () => L.T("Служба HP Support Assistant работает в фоне постоянно", "An HP Support Assistant service that runs all the time"),
                     () => L.T("HP Support Assistant будет запускаться дольше", "HP Support Assistant starts slower"));
@@ -347,6 +369,34 @@ namespace DriveUp
             ExtraService("iphlpsvc", "manual", 3, () => L.T("Вспомогательная служба IP (туннели IPv6)", "IP Helper (IPv6 tunnels)"),
                 () => L.T("Держит туннели IPv6 (Teredo, IP-HTTPS), которые дома почти не нужны", "Keeps IPv6 tunnels (Teredo, IP-HTTPS) that are hardly needed at home"),
                 () => L.T("не будет Teredo: он нужен голосовому чату Xbox и некоторым VPN", "no Teredo: Xbox voice chat and some VPNs need it"), m => !m.Managed, new[] { "work", "quiet" });
+            // 1.6: makers' telemetry and helpers that run all the time.
+            foreach (var dv in new[] { "DDVDataCollector", "DDVRulesProcessor", "DDVCollectorSvcApi" })
+                ExtraService(dv, "disabled", 1, () => "Dell Data Vault (" + dv + ")",
+                    () => L.T("Собирает данные об использовании для Dell", "Collects usage data for Dell"));
+            ExtraService("AGSService", "disabled", 1, () => L.T("Adobe: проверка подлинности ПО", "Adobe Genuine Software Integrity"),
+                () => L.T("Проверяет лицензии Adobe в фоне постоянно, программы Adobe работают и без неё", "Keeps checking Adobe licences in the background; Adobe apps work without it"));
+            ExtraService("AGMService", "disabled", 1, () => L.T("Adobe: монитор подлинности ПО", "Adobe Genuine Monitor"),
+                () => L.T("Проверяет лицензии Adobe в фоне постоянно, программы Adobe работают и без неё", "Keeps checking Adobe licences in the background; Adobe apps work without it"));
+            ExtraService("AdobeUpdateService", "manual", 3, () => L.T("Обновление Adobe Creative Cloud", "Adobe Creative Cloud updates"),
+                () => L.T("Служба обновления работает постоянно", "The update service runs all the time"),
+                () => L.T("программы Adobe обновятся, когда вы откроете Creative Cloud", "Adobe apps update when you open Creative Cloud"));
+            foreach (var dsa in new[] { "DSAService", "DSAUpdateService" })
+                ExtraService(dsa, "manual", 3, () => "Intel Driver & Support Assistant (" + dsa + ")",
+                    () => L.T("Постоянно проверяет драйверы Intel в фоне — DriveUP делает это сам", "Keeps checking Intel drivers in the background — DriveUP does that itself"),
+                    () => L.T("помощник Intel проверит драйверы, только когда вы его откроете", "the Intel assistant checks drivers only when you open it"));
+            ExtraService("EABackgroundService", "manual", 3, () => L.T("EA app: фоновая служба", "EA app background service"),
+                () => L.T("Работает постоянно, даже без запущенных игр", "Runs all the time, even with no game running"),
+                () => L.T("игры EA обновятся, когда вы откроете EA app", "EA games update when you open the EA app"));
+            ExtraService("TeamViewer", "manual", 3, () => L.T("Служба TeamViewer", "TeamViewer service"),
+                () => L.T("Постоянно ждёт входящих подключений", "Keeps waiting for incoming connections"),
+                () => L.T("подключиться к этому компьютеру без запуска TeamViewer не получится", "nobody can connect to this PC unless TeamViewer is started"), m => !m.Managed);
+            ExtraService("AnyDesk", "manual", 3, () => L.T("Служба AnyDesk", "AnyDesk service"),
+                () => L.T("Постоянно ждёт входящих подключений", "Keeps waiting for incoming connections"),
+                () => L.T("подключиться к этому компьютеру без запуска AnyDesk не получится", "nobody can connect to this PC unless AnyDesk is started"), m => !m.Managed);
+            foreach (var link in new[] { "ASUSLinkNear", "ASUSLinkRemote" })
+                ExtraService(link, "manual", 3, () => "Link to MyASUS (" + link + ")",
+                    () => L.T("Постоянно ищет телефон рядом и ждёт удалённых подключений", "Keeps looking for a phone nearby and waiting for remote connections"),
+                    () => L.T("функции Link to MyASUS работают, только пока MyASUS открыт", "Link to MyASUS features work only while MyASUS is open"));
             ExtraService("NahimicService", "disabled", 3, () => L.T("Звуковые эффекты Nahimic", "Nahimic audio effects"),
                 () => L.T("Встраивается в звук игр; из-за него бывают вылеты и подтормаживания", "Hooks into game audio; known to cause crashes and stutter"),
                 () => L.T("звуковые эффекты Nahimic перестанут работать", "Nahimic sound effects stop"), null, new[] { "games" });
@@ -400,6 +450,16 @@ namespace DriveUp
             {
                 Text = v => v == 0 ? L.T("никогда", "never") : v >= 100 ? L.T("всегда от батареи", "always on battery") : L.T("при заряде ", "at ") + v + " %",
             }, "energysaver", TuneCat.Power, "\uE945", () => L.T("Экономия энергии включается", "Energy saver turns on"));
+            // Battery side, offered only in Quiet on laptops, never ticked by itself (each one confirmed).
+            var boostDc = Add(new PowerSetting(PowerApi.SubProcessor, PowerApi.BoostMode) { BatteryOnly = true, Text = boost.Text },
+                "boostdc", TuneCat.Power, "\uEC4A", () => L.T("Турбо-буст от батареи", "Processor boost on battery"));
+            var eppDc = Add(new PowerSetting(PowerApi.SubProcessor, PowerApi.EnergyPreference) { BatteryOnly = true, Text = epp.Text },
+                "eppdc", TuneCat.Power, "\uE9F5", () => L.T("Приоритет энергии от батареи (EPP)", "Energy preference on battery (EPP)"));
+            var minStateDc = Add(new PowerSetting(PowerApi.SubProcessor, PowerApi.MinState) { BatteryOnly = true, Text = Percent },
+                "minstatedc", TuneCat.Power, "\uE9D9", () => L.T("Минимальная частота от батареи", "Minimum processor state on battery"));
+            boost.Battery = boostDc;
+            epp.Battery = eppDc;
+            minState.Battery = minStateDc;
             var searchBattery = Add(new RegSwitch(true, @"SOFTWARE\Policies\Microsoft\Windows\Windows Search", "PreventIndexOnBattery", 1, 0)
             { When = m => m.Mobile, OnText = () => L.T("ждёт зарядки", "waits for the charger"), OffText = () => L.T("работает и от батареи", "runs on battery too") },
                 "searchbattery", TuneCat.Background, "\uE721", () => L.T("Индексирование поиска от батареи", "Search indexing on battery"));
@@ -407,6 +467,7 @@ namespace DriveUp
             { OnWhenAbsent = () => true, When = m => m.Windows11, OnText = () => L.T("решает каждое приложение", "each app decides"), OffText = () => L.T("запрещена всем", "denied to all") },
                 "bgpolicy", TuneCat.Background, "\uE71D", () => L.T("Фоновая работа приложений из Store", "Background activity of Store apps"));
             bgPolicy.NeedsReboot = true;
+            if (DesktopUser.Other) menu.NeedsReboot = mouse.NeedsReboot = true;
             var hotkeys = Add(new AccessHotkeys(), "hotkeys", TuneCat.Gaming, "\uE765", () => L.T("Сочетания залипания и фильтрации клавиш", "Sticky and Filter Keys shortcuts"));
             var separate = Add(new RegSwitch(false, Adv, "SeparateProcess", 1, 0), "separateproc", TuneCat.Interface, "\uE838", () => L.T("Окна папок в отдельном процессе", "Folder windows in a separate process"));
             separate.NeedsReboot = true;
@@ -422,6 +483,7 @@ namespace DriveUp
                     .Add(true, AiPolicy, "DisableAIDataAnalysis", 1).Add(false, AiPolicy, "DisableAIDataAnalysis", 1),
                 "recall", TuneCat.Privacy, "\uE722", () => L.T("Recall: снимки экрана", "Recall: screen snapshots"));
             recall.NeedsReboot = true;
+            if (DesktopUser.Other) hotkeys.NeedsReboot = true;
             var doPeers = Add(new RegSwitch(true, @"SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization", "DODownloadMode", 1, 0)
             { OnWhenAbsent = () => true, OnText = () => L.T("раздаёт обновления другим ПК", "shares updates with other PCs"), OffText = () => L.T("только с серверов Microsoft", "from Microsoft servers only") },
                 "dopeers", TuneCat.Updates, "\uE896", () => L.T("Оптимизация доставки (обмен обновлениями)", "Delivery Optimization (sharing updates)"));
@@ -445,6 +507,19 @@ namespace DriveUp
                 new[] { "Microsoft.PowerAutomateDesktop_", "Power Automate" }, new[] { "MicrosoftCorporationII.MicrosoftFamily_", "Microsoft Family" },
                 new[] { "Microsoft.Copilot_", "Copilot" }, new[] { "Microsoft.BingSearch_", "Bing Search" }, new[] { "Microsoft.Windows.DevHome_", "Dev Home" },
                 new[] { "7EE7776C.LinkedInforWindows_", "LinkedIn" },
+                // 1.6
+                new[] { "Microsoft.BingWeather_", "Weather" }, new[] { "Microsoft.WindowsMaps_", "Maps" }, new[] { "Microsoft.Todos_", "Microsoft To Do" },
+                new[] { "Microsoft.OutlookForWindows_", "Outlook (new)" }, new[] { "MicrosoftTeams_", "Microsoft Teams (personal, retired)" },
+                new[] { "Microsoft.MSPaint_", "Paint 3D" }, new[] { "Microsoft.Microsoft3DViewer_", "3D Viewer" }, new[] { "Microsoft.Print3D_", "Print 3D" },
+                new[] { "Microsoft.OneConnect_", "Mobile Plans" }, new[] { "Microsoft.BingFinance_", "Microsoft Money" }, new[] { "Microsoft.BingSports_", "Microsoft Sports" },
+                new[] { "Microsoft.Messaging_", "Messaging" }, new[] { "Microsoft.Office.OneNote_", "OneNote for Windows 10" }, new[] { "Microsoft.Office.Sway_", "Sway" },
+                new[] { "Microsoft.Wallet_", "Microsoft Pay" }, new[] { "Microsoft.XboxApp_", "Xbox Console Companion" }, new[] { "Microsoft.NetworkSpeedTest_", "Network Speed Test" },
+                new[] { "SpotifyAB.SpotifyMusic_", "Spotify" }, new[] { "4DF9E0F8.Netflix_", "Netflix" }, new[] { "AdobeSystemsIncorporated.AdobePhotoshopExpress_", "Photoshop Express" },
+                new[] { "king.com.FarmHeroesSaga_", "Farm Heroes Saga" }, new[] { "A278AB0D.MarchofEmpires_", "March of Empires" }, new[] { "A278AB0D.DisneyMagicKingdoms_", "Disney Magic Kingdoms" },
+                new[] { "Flipboard.Flipboard_", "Flipboard" }, new[] { "ShazamEntertainmentLtd.Shazam_", "Shazam" }, new[] { "D5EA27B7.Duolingo-LearnLanguagesforFree_", "Duolingo" },
+                new[] { "PandoraMediaInc.29680B314EFC2_", "Pandora" }, new[] { "CAF9E577.Plex_", "Plex" }, new[] { "ActiproSoftwareLLC.562882FEEB491_", "Code Writer" },
+                new[] { "46928bounde.EclipseManager_", "Eclipse Manager" }, new[] { "AD2F1837.HPJumpStarts_", "HP JumpStart" }, new[] { "DellInc.DellDigitalDelivery_", "Dell Digital Delivery" },
+                new[] { "Amazon.com.Amazon_", "Amazon" },
             })
             {
                 var app = new StoreApp(a[0], a[1]);
@@ -578,6 +653,12 @@ namespace DriveUp
                             ? L.T("Скорость, когда нужна, и долгая работа от батареи", "Speed when needed and long battery life")
                             : L.T("Почти без потери скорости, но тише и экономнее", "Nearly as fast, but quieter and cheaper to run")),
                         Step(boost, m.Mobile ? "2,*" : "2,2", () => L.T("Быстрый отклик в тяжёлых программах", "Quick response in heavy programs")),
+                        // Its own processor values, so nothing set by Games (100 % minimum, speed-only EPP) keeps the clocks up.
+                        Step(minState, m.Mobile ? "5,*" : "5,5", () => L.T("В простое частота опускается — тише и холоднее, под нагрузкой растёт за миллисекунды", "At rest the clock drops — quieter and cooler; under load it rises within milliseconds") +
+                            (m.Mobile ? L.T(" (от сети)", " (on mains)") : "")),
+                        Step(epp, m.Mobile ? "33,*" : "33,33", () => L.T("Баланс, как задумано в схеме «Сбалансированная»: быстрый разгон без постоянной высокой частоты", "Balance as the Balanced plan intends: quick to speed up, no constant high clocks") +
+                            (m.Mobile ? L.T(" (от сети)", " (on mains)") : "")),
+                        Step(throttle, "0", () => L.T("Windows замедляет только фоновые программы (EcoQoS) — окно, с которым вы работаете, не трогается", "Windows slows only background programs (EcoQoS) — the window you work in is left alone")),
                         Step(record, "0", () => L.T("Фоновая запись видео в работе не нужна", "Background video recording is not needed for work")),
                         Step(fast, "0", () => L.T("Чистый запуск при каждом включении: обновления и драйверы применяются полностью", "A clean start every time: updates and drivers apply fully")),
                         Step(hours, "8-20", () => L.T("Windows не перезагрузится для обновлений посреди рабочего дня", "Windows will not restart for updates mid-workday")),
@@ -611,8 +692,21 @@ namespace DriveUp
                             : L.T("Меньше нагрев — вентиляторы медленнее", "Less heat — fans spin slower")),
                         Step(boost, m.Mobile ? "0,*" : "0,0", () => L.T("Без разгона: заметно холоднее и тише, тяжёлые задачи медленнее", "No boost: noticeably cooler and quieter, heavy tasks slower") +
                             (m.Mobile ? L.T(" (от сети; от батареи решает Windows)", " (on mains; on battery Windows decides)") : "")),
-                        Step(epp, m.Mobile ? "60,*" : "60,60", () => L.T("Процессор выбирает экономию", "The processor favours saving") +
+                        Step(epp, m.Mobile ? "80,*" : "80,80", () => L.T("Процессор выбирает экономию и не держит высокую частоту без нужды", "The processor favours saving and keeps no high clocks it does not need") +
                             (m.Mobile ? L.T(" (от сети)", " (on mains)") : "")),
+                        // Explicit, so a 100 % minimum or "all cores on" left from Games no longer keeps the clocks up.
+                        Step(minState, m.Mobile ? "5,*" : "5,5", () => L.T("В простое частота опускается до минимума, а не держится на базовой", "At rest the clock drops to its minimum instead of staying at base") +
+                            (m.Mobile ? L.T(" (от сети)", " (on mains)") : "")),
+                        Step(cores, m.Mobile ? "10,*" : "10,10", () => L.T("Незанятые ядра засыпают — меньше нагрев и расход", "Idle cores go to sleep — less heat and power") +
+                            (m.Mobile ? L.T(" (от сети)", " (on mains)") : "")),
+                        Step(throttle, "0", () => L.T("Windows замедляет фоновые программы ради экономии (EcoQoS)", "Windows slows background programs to save power (EcoQoS)")),
+                        // The battery side, each one only with permission (it is what most of the battery life depends on).
+                        m.Mobile ? Opt(boostDc, "*,0", () => L.T("От батареи процессор не разгоняется: заметно холоднее и дольше без зарядки", "On battery the processor does not boost: noticeably cooler and longer between charges"),
+                            () => L.T("от батареи тяжёлые программы и игры заметно медленнее", "on battery heavy programs and games are noticeably slower")) : null,
+                        m.Mobile ? Opt(eppDc, "*,80", () => L.T("От батареи процессор выбирает экономию", "On battery the processor favours saving"),
+                            () => L.T("от батареи отклик чуть медленнее", "on battery responses are a little slower")) : null,
+                        m.Mobile ? Opt(minStateDc, "*,5", () => L.T("От батареи частота в простое опускается до минимума", "On battery the clock drops to its minimum at rest"),
+                            () => L.T("меняется значение для работы от батареи", "changes a battery-side value")) : null,
                         // The one battery-side value DriveUP offers: when Windows' own Energy saver starts (as in Settings).
                         m.Mobile ? Opt(saver, "*,100", () => L.T("Экономия энергии Windows работает всё время от батареи: меньше фоновой активности — дольше без зарядки", "Windows Energy saver is on whenever on battery: less background activity, longer between charges"),
                             () => L.T("от батареи экран чуть темнее, почта и приложения синхронизируются реже", "on battery the screen is a bit dimmer and mail and apps sync less often")) : null,
@@ -695,7 +789,7 @@ namespace DriveUp
             return (int)t.Category * 1000 + (i < 0 ? 999 : i);
         }
 
-        static bool IsSaved(string id)
+        public static bool IsSaved(string id)
         {
             lock (Settings.Sync) return Settings.TuneSaved.ContainsKey(id);
         }

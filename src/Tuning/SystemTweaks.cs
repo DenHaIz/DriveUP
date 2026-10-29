@@ -371,6 +371,9 @@ namespace DriveUp
                 "AdobeCollabSync", "AcroTray"),
             R(1, @"LogiDA|Logitech Download Assistant", () => L.T("Помощник загрузок Logitech проверяет обновления при каждом входе", "Logitech Download Assistant checks for updates at every sign-in"), null, "LogiDA"),
             R(1, @"Cortana", () => L.T("Cortana закрыта Microsoft", "Microsoft retired Cortana"), null, "Cortana"),
+            R(1, @"IObit|Driver ?Booster|Advanced ?SystemCare|Auslogics|Wise ?Care|Razer ?Cortex", () => L.T("«Ускоритель» висит в фоне и показывает рекламу — чистка и драйверы есть в DriveUP", "A \"booster\" sits in the background showing ads — DriveUP covers drivers and tuning"), null,
+                "DriverBooster", "ASC", "Monitor", "RazerCortex"),
+            R(1, @"BingWallpaper|Bing Wallpaper", () => L.T("Обои Bing: процесс в фоне и предложения поиска Bing", "Bing Wallpaper: a background process and Bing search prompts"), null, "BingWallpaper"),
             R(2, @"\bsteam(\.exe)?\b", () => L.T("Steam можно открыть перед игрой", "Open Steam before you play"), null, "steam", "steamwebhelper"),
             R(2, @"discord", () => L.T("Тяжёлый мессенджер — запускайте, когда нужен", "A heavy messenger — start it when you need it"), null, "Discord"),
             R(2, @"spotify", () => L.T("Запускается и висит в фоне", "Starts and sits in the background"), null, "Spotify"),
@@ -383,8 +386,17 @@ namespace DriveUp
                 "Docker Desktop", "com.docker.backend"),
             R(2, @"Overwolf|\bMedal\b", () => L.T("Оверлей и запись клипов держат процессы в фоне", "Overlays and clip recording keep processes in the background"), null, "Overwolf", "Medal"),
             R(2, @"Microsoft\.Copilot|\bCopilot\b", () => L.T("Copilot откроется, когда понадобится", "Copilot opens when you need it"), null, "Copilot"),
+            R(2, @"wallpaper(32|64)|Wallpaper ?Engine|\bLively\b", () => L.T("Живые обои постоянно нагружают видеокарту и батарею", "Live wallpapers keep the graphics card and battery busy"), null, "wallpaper32", "wallpaper64", "Lively"),
+            R(2, @"Rainmeter", () => L.T("Виджеты рабочего стола обновляются постоянно", "Desktop widgets refresh all the time"), null, "Rainmeter"),
+            R(2, @"Grammarly", () => L.T("Проверка текста висит в фоне и следит за вводом", "The writing checker sits in the background watching input"), null, "Grammarly.Desktop", "GrammarlyDesktop"),
+            R(2, @"Webex|CiscoCollabHost|CiscoMeetingDaemon", () => L.T("Мессенджер можно запускать вручную", "Start the messenger by hand"), null, "CiscoCollabHost", "webexmta", "CiscoWebexStart"),
+            R(2, @"TeamViewer|AnyDesk", () => L.T("Программа удалённого доступа висит в трее — откройте, когда понадобится", "The remote access app sits in the tray — open it when needed"), null, "TeamViewer", "AnyDesk"),
+            R(2, @"\bWeMod\b|figma_agent|\bNotion\b", () => L.T("Запускается и висит в фоне", "Starts and sits in the background"), null, "WeMod", "figma_agent", "Notion"),
             R(2, @"Creative Cloud|CCXProcess|AdobeAAMUpdater", () => L.T("Фоновые процессы Adobe Creative Cloud", "Adobe Creative Cloud background processes"), null,
                 "Creative Cloud", "CCXProcess", "AdobeIPCBroker", "CoreSync", "Adobe Desktop Service"),
+            R(3, @"LGHUB|Logitech G HUB|Razer ?Synapse|RazerAppEngine|\biCUE\b|Corsair|SteelSeries ?GG", () => L.T("Программа мыши и клавиатуры: процессы и подсветка в фоне", "Mouse and keyboard software: background processes and lighting"),
+                () => L.T("профили, макросы и подсветка загрузятся только после её запуска", "profiles, macros and lighting load only once it is started"),
+                "lghub", "lghub_agent", "RazerAppEngine", "Razer Synapse 3", "iCUE", "SteelSeriesGG"),
             R(3, @"OneDrive|GoogleDriveFS|Dropbox|Yandex\.?Disk|iCloud|MEGAsync", () => L.T("Облачный диск: файлы перестанут синхронизироваться, пока его не запустить", "Cloud drive: files stop syncing until you start it"),
                 () => L.T("файлы не синхронизируются", "files stop syncing"), "OneDrive", "GoogleDriveFS", "Dropbox", "YandexDisk2", "iCloudDrive", "iCloudServices", "MEGAsync"),
         };
@@ -406,7 +418,7 @@ namespace DriveUp
             {
                 try
                 {
-                    string dir = Environment.GetFolderPath(folder.Item2);
+                    string dir = folder.Item1 ? Environment.GetFolderPath(folder.Item2) : DesktopUser.StartupFolder();
                     if (dir.Length == 0 || !Directory.Exists(dir)) continue;
                     foreach (var f in Directory.GetFiles(dir))
                     {
@@ -447,7 +459,7 @@ namespace DriveUp
                 {
                     try
                     {
-                        string dir = Environment.GetFolderPath(folder.Item2);
+                        string dir = folder.Item1 ? Environment.GetFolderPath(folder.Item2) : DesktopUser.StartupFolder();
                         if (dir.Length == 0 || !Directory.Exists(dir)) continue;
                         foreach (var f in Directory.GetFiles(dir))
                         {
@@ -581,6 +593,9 @@ namespace DriveUp
 
         const string Adv = @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
 
+        /// <summary>Applied through SystemParametersInfo, which reaches only the account DriveUP runs as.</summary>
+        public override bool Available(Machine m) { return !DesktopUser.Other; }
+
         public override string Capture()
         {
             string bar = Reg.Capture(false, Adv, "TaskbarAnimations");
@@ -639,10 +654,21 @@ namespace DriveUp
         // Get / set actions: Sticky Keys, Filter Keys, Toggle Keys.
         static readonly int[] Get = { 0x003A, 0x0032, 0x0034 }, SetAction = { 0x003B, 0x0033, 0x0035 };
 
+        // Elevated as another account: the desktop user's own values (applied at their next sign-in).
+        const string Access = @"Control Panel\Accessibility\";
+        static readonly string[] Keys = { "StickyKeys", "Keyboard Response", "ToggleKeys" }, Defaults = { "510", "126", "62" };
+
+        static int RegFlags(int i)
+        {
+            int v;
+            return int.TryParse(Reg.Get(false, Access + Keys[i], "Flags") as string ?? Defaults[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out v) ? v : 0;
+        }
+
         /// <summary>"1" or "0" for each shortcut: Sticky, Filter, Toggle Keys.</summary>
         string[] Read()
         {
             if (Reg.TestRoot != null) return (Reg.Get(false, "Access", "Hotkeys") as string ?? "1,1,1").Split(',');
+            if (DesktopUser.Other) return Enumerable.Range(0, 3).Select(i => (RegFlags(i) & HotkeyActive) != 0 ? "1" : "0").ToArray();
             var r = new string[3];
             for (int i = 0; i < 3; i++) r[i] = (Flags(i) & HotkeyActive) != 0 ? "1" : "0";
             return r;
@@ -664,6 +690,16 @@ namespace DriveUp
         void Write(string[] on)
         {
             if (Reg.TestRoot != null) { Reg.SetString(false, "Access", "Hotkeys", string.Join(",", on)); return; }
+            if (DesktopUser.Other)
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    int f = RegFlags(i);
+                    f = on[i] == "1" ? f | HotkeyActive : f & ~HotkeyActive;
+                    Reg.SetString(false, Access + Keys[i], "Flags", f.ToString(CultureInfo.InvariantCulture));
+                }
+                return;
+            }
             for (int i = 0; i < 3; i++)
             {
                 bool want = on[i] == "1";

@@ -14,7 +14,7 @@ namespace DriveUp
     class UpdatesPage : Page
     {
         readonly UpdateRing ring = new UpdateRing();
-        readonly FlatButton btnMain, btnRecheck, btnShowProblems;
+        readonly FlatButton btnMain, btnRecheck, btnShowProblems, btnDownload;
         readonly StatusText hint = new StatusText { Flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis };
         readonly Card listCard = new Card(), optCard = new Card();
         readonly CategoryList list = new CategoryList();
@@ -28,6 +28,10 @@ namespace DriveUp
         // Link rows for newer drivers on vendors' sites, shown under the installable ones.
         List<CatGroup> vendorCats = new List<CatGroup>();
         bool scanning, working, checkedOnce, failedCheck;
+        // The download queue is running (the footer ring turns); what it brought this time.
+        bool queueBusy;
+        int queueDone, queueFailed;
+        string queueError;
         int stage, installedCount, attemptedCount;
         string error, retryNote;
         UpdateResult lastResult;
@@ -45,10 +49,17 @@ namespace DriveUp
 
             btnRecheck = new FlatButton("", "\uE72C", ButtonKind.Ghost);
             btnRecheck.Click += (s, e) => StartCheck();
+            btnDownload = new FlatButton("", "\uE896", ButtonKind.Primary);
+            btnDownload.Click += (s, e) => DownloadTicked();
+            btnDownload.Visible = false;
             listCard.TitleBase = 52;
             list.CheckedChanged += (s, e) => OnChecksChanged();
             listCard.Controls.Add(list);
             listCard.Controls.Add(btnRecheck);
+            listCard.Controls.Add(btnDownload);
+            Downloads.Changed += job => { if (!IsDisposed) DownloadChanged(job); };
+            Downloads.Finished += job => { if (!IsDisposed) DownloadFinished(job); };
+            Downloads.Idle += () => { if (!IsDisposed) DownloadsIdle(); };
             listCard.Resize += (s, e) => LayoutListCard();
             Controls.Add(listCard);
 
@@ -123,6 +134,9 @@ namespace DriveUp
         {
             btnRecheck.SetBaseHeight(32);
             btnRecheck.Location = new Point(listCard.Width - btnRecheck.Width - S(12), (listCard.TitleHeight - btnRecheck.Height) / 2);
+            btnDownload.SetBaseHeight(32);
+            int right = btnRecheck.Visible ? btnRecheck.Left - S(8) : listCard.Width - S(12);
+            btnDownload.Location = new Point(right - btnDownload.Width, (listCard.TitleHeight - btnDownload.Height) / 2);
             list.SetBounds(S(2), listCard.TitleHeight, listCard.Width - S(4), listCard.Height - listCard.TitleHeight - S(6));
         }
 
@@ -167,6 +181,10 @@ namespace DriveUp
                 "Windows Server has no System Restore — the step is skipped there."));
             tip.SetToolTip(swOnStart, L.T("Искать новые драйверы сразу при открытии DriveUP", "Look for new drivers as soon as DriveUP opens"));
             tip.SetToolTip(btnRecheck, L.T("Спросить Windows Update ещё раз", "Ask Windows Update again"));
+            tip.SetToolTip(btnDownload, L.T("Скачать отмеченные драйверы по очереди — установить их можно разом на вкладке «Установка»",
+                "Download the ticked drivers one after another — install them together on the Install tab"));
+            UpdatePickButton();
+            foreach (var item in PickItems()) SetBadge(item);
             UpdateTexts();
             UpdateInfo();
             UpdateEmpty();
@@ -545,107 +563,138 @@ namespace DriveUp
                     var vu = v;
                     var ci = new CatItem
                     {
-                        Tag = vu, Size = 0, Badge = vu.CatalogId.Length > 0 ? L.T("скачать", "download") : L.T("открыть", "open"),
+                        Tag = vu, Size = vu.Size > 0 ? vu.Size : 0, Badge = L.T("открыть", "open"),
                         Name = () => vu.Title,
                         Note = () => vu.VersionText + (vu.Date.HasValue ? L.T(" от ", ", ") + L.Date(vu.Date.Value) : "") +
                                      (vu.CurrentText.Length > 0 ? L.T("  ·  сейчас ", "  ·  now ") + vu.CurrentText : ""),
-                        Open = () =>
-                        {
-                            if (vu.CatalogId.Length > 0) CatalogSource.Fetch(Host, this, vu.CatalogId, vu.Title, vu.Size);
-                            else try { UserShell.OpenUrl(vu.Url); } catch { }
-                        },
+                        Open = () => { try { UserShell.OpenUrl(vu.Url); } catch { } },
                     };
-                    if (VendorInstall.Offers(vu))
+                    // Downloadable: ticked with others or queued by its button, installed later on the Install tab.
+                    if (Downloads.Offers(vu))
                     {
                         var item = ci;
-                        item.Badge = InstallCaption;
-                        item.Act = () => InstallVendor(vu, item);
+                        item.Pick = true;
+                        item.Act = () => DownloadOne(vu);
+                        SetBadge(item);
                     }
                     cg.Items.Add(ci);
                 }
                 var rows = cg.Items;
                 cg.Desc = () => L.Count(rows.Count, "драйвер новее", "драйвера новее", "драйверов новее", "newer driver", "newer drivers") +
-                    (catalog ? L.T("  ·  нажмите, чтобы скачать и установить", "  ·  click to download and install")
-                     : rows.Any(i => i.Act != null) ? L.T("  ·  файл производителя, подпись проверяется; строка — страница на сайте", "  ·  the vendor's own file, signature checked; the row opens its page")
+                    (catalog ? L.T("  ·  отметьте и скачайте, установка — на вкладке «Установка»", "  ·  tick and download, then install on the Install tab")
+                     : rows.Any(i => i.Pick) ? L.T("  ·  файл производителя, подпись проверяется; установка — на «Установке»", "  ·  the vendor's own file, signature checked; install on the Install tab")
                      : L.T("  ·  скачайте и перетащите на «Установку»", "  ·  download, then drop it on the Install tab"));
                 result.Add(cg);
             }
             return result;
         }
 
-        static string InstallCaption { get { return L.T("скачать и установить", "download and install"); } }
+        // ---------- the download queue ----------
 
-        bool vendorWorking;
+        IEnumerable<CatItem> PickItems() { return vendorCats.SelectMany(g => g.Items).Where(i => i.Pick); }
 
-        /// <summary>"Download and install" of one vendor row: everything on a worker thread, the row's button shows the step.</summary>
-        void InstallVendor(VendorUpdate vu, CatItem item)
+        /// <summary>The row's button tells where its download is: "download", "queued", "45 %", "downloaded", "retry".</summary>
+        static void SetBadge(CatItem item)
         {
-            if (Busy || vendorWorking) { Host.ShowToast(L.T("Дождитесь окончания проверки или установки", "Wait until the check or install finishes"), ToastKind.Info); return; }
-            if (!Host.CanStartOperation()) return;
-            vendorWorking = true;
-            item.Warn = false;
-            Host.BeginBusy();
-            Host.ShowToast(L.T("Скачиваю: ", "Downloading: ") + vu.Title + (vu.Size > 0 ? " (" + L.Size(vu.Size) + ")" : ""), ToastKind.Info);
-            int lastPercent = -1;
-            long lastBytes = 0;
-            Action<string> stage = s => Post(() => { item.Badge = s; list.Invalidate(); });
-            Action<long, long> progress = (done, total) =>
+            var job = Downloads.Of((VendorUpdate)item.Tag);
+            item.Warn = job != null && job.State == DownloadState.Failed;
+            if (job == null) { item.Badge = L.T("скачать", "download"); return; }
+            switch (job.State)
             {
-                // A few updates a second at most: per percent, or per 8 MB when the size is unknown.
-                int pc = total > 0 ? (int)(done * 100 / total) : -1;
-                if (total > 0 ? pc == lastPercent : done - lastBytes < (8 << 20)) return;
-                lastPercent = pc;
-                lastBytes = done;
-                string text = total > 0 ? L.T("скачано ", "downloaded ") + pc + " %" : L.Size(done) + "…";
-                Post(() => { item.Badge = text; list.Invalidate(); });
-            };
-            var th = new Thread(() =>
-            {
-                var r = VendorInstall.Run(vu, Host.Window, AskUI, stage, progress);
-                RunUI(() => VendorDone(vu, item, r));
-            }) { IsBackground = true, Name = "vendor install" };
-            th.Start();
+                case DownloadState.Queued: item.Badge = L.T("в очереди", "queued"); break;
+                case DownloadState.Downloading: item.Badge = job.ProgressText; break;
+                case DownloadState.Done: item.Badge = L.T("скачан — к установке", "downloaded — install"); break;
+                default: item.Badge = L.T("повторить", "retry"); break;
+            }
         }
 
-        void VendorDone(VendorUpdate vu, CatItem item, VendorResult r)
+        void UpdatePickButton()
         {
-            vendorWorking = false;
-            Host.EndBusy();
-            item.Badge = InstallCaption;
-            list.Invalidate();
-            if (r.OpenFile != null)
+            int n = PickItems().Count(i => i.Checked);
+            string text = L.T("Скачать отмеченные", "Download ticked") + " (" + n + ")";
+            if (btnDownload.Text != text) SetButton(btnDownload, text);
+            bool show = n > 0;
+            if (btnDownload.Visible != show)
             {
-                Host.ShowToast(L.T("Архив скачан и проверен — открыт на «Установке»", "The archive is downloaded and checked — opened on the Install tab"), ToastKind.Success);
-                Host.InstallFrom(new[] { r.OpenFile });
+                btnDownload.Visible = show;
+                if (show) btnDownload.Appear();
+            }
+            LayoutListCard();
+        }
+
+        void DownloadTicked()
+        {
+            var ticked = PickItems().Where(i => i.Checked).ToList();
+            foreach (var i in ticked) i.Checked = false;
+            list.RefreshChecks();
+            Queue(ticked.Select(i => (VendorUpdate)i.Tag).ToList());
+            UpdatePickButton();
+        }
+
+        void DownloadOne(VendorUpdate vu)
+        {
+            var job = Downloads.Of(vu);
+            if (job != null && job.State == DownloadState.Done) { Host.OpenTab(2); return; }
+            if (job != null && job.State != DownloadState.Failed)
+            {
+                Host.ShowToast(L.T("Уже в очереди на скачивание", "Already in the download queue"), ToastKind.Info);
                 return;
             }
-            if (r.Cancelled) { Host.ShowToast(L.T("Установка отменена", "Install cancelled") + (r.Message.Length > 0 ? ": " + r.Message : ""), ToastKind.Info); return; }
-            if (!r.Ok)
+            Queue(new List<VendorUpdate> { vu });
+        }
+
+        void Queue(List<VendorUpdate> updates)
+        {
+            int n = Downloads.Add(updates);
+            if (n == 0)
             {
-                item.Warn = true;
-                list.Invalidate();
-                Host.ShowToast(L.T("Не удалось: ", "Failed: ") + r.Message, ToastKind.Error);
+                if (updates.Count > 0) Host.ShowToast(L.T("Эти драйверы уже скачаны или в очереди", "These drivers are already downloaded or queued"), ToastKind.Info);
                 return;
             }
-            Host.ShowToast(L.T("Драйвер установлен: ", "Driver installed: ") + vu.Title + (r.Reboot ? L.T(" · нужна перезагрузка", " · restart needed") : ""), ToastKind.Success);
-            // The row leaves the list (its group too, when it was the last one).
-            foreach (var g in vendorCats) g.Items.Remove(item);
-            vendorCats = vendorCats.Where(g => g.Items.Count > 0).ToList();
-            var shown = cats.Concat(vendorCats).ToList();
-            Transition.CrossFade(list, () => list.SetGroups(shown), 260);
-            UpdateEmpty();
-            UpdateTexts();
+            if (!queueBusy)
+            {
+                queueBusy = true;
+                queueDone = queueFailed = 0;
+                queueError = null;
+                Host.BeginBusy();
+            }
+            Host.ShowToast(n == 1 && updates.Count == 1
+                ? L.T("Скачиваю: ", "Downloading: ") + updates[0].Title
+                : L.T("В очереди на скачивание: ", "Queued for download: ") + Downloads.Pending + L.T(" · установка — на вкладке «Установка»", " · install them on the Install tab"), ToastKind.Info);
             Host.UpdateStatus();
-            // Versions changed: read the devices again (the Devices tab and the vendor findings follow).
-            var th = new Thread(() =>
+        }
+
+        void DownloadChanged(DownloadJob job)
+        {
+            foreach (var item in PickItems())
+                if (Downloads.Same((VendorUpdate)item.Tag, job.Update)) SetBadge(item);
+            list.Invalidate();
+        }
+
+        void DownloadFinished(DownloadJob job)
+        {
+            if (job.State == DownloadState.Done) queueDone++;
+            else
             {
-                Dictionary<string, Bitmap> icons;
-                var devs = Inventory.LoadDevices(out icons);
-                Post(() => Inventory.SetDevices(devs, icons));
-            }) { IsBackground = true };
-            th.SetApartmentState(ApartmentState.STA);
-            th.Start();
-            if (r.Reboot) Anim.Delay(900, AskRestart);
+                queueFailed++;
+                if (queueError == null) queueError = job.Update.Title + ": " + job.Error;
+            }
+            Host.UpdateStatus();
+        }
+
+        void DownloadsIdle()
+        {
+            if (!queueBusy) return;
+            queueBusy = false;
+            Host.EndBusy();
+            Host.UpdateStatus();
+            if (queueDone == 0)
+            {
+                Host.ShowToast(L.T("Не удалось скачать: ", "Download failed: ") + (queueError ?? ""), ToastKind.Error);
+                return;
+            }
+            Host.ShowToast(L.T("Скачано: ", "Downloaded: ") + queueDone + (queueFailed > 0 ? L.T(" · не удалось: ", " · failed: ") + queueFailed : "") +
+                L.T(" — установите их на вкладке «Установка»", " — install them on the Install tab"), queueFailed > 0 ? ToastKind.Info : ToastKind.Success);
         }
 
         int VendorCount { get { return vendorCats.Where(g => !"runtimes".Equals(g.Tag)).Sum(g => g.Items.Count); } }
@@ -726,6 +775,7 @@ namespace DriveUp
         void OnChecksChanged()
         {
             foreach (var ci in AllItems()) ((DriverUpdate)ci.Tag).Checked = ci.Checked;
+            UpdatePickButton();
             UpdateTexts();
             Host.UpdateStatus();
         }
@@ -936,6 +986,7 @@ namespace DriveUp
             {
                 if (scanning) return L.T("Поиск обновлений драйверов…", "Looking for driver updates…");
                 if (working) return L.T("Установка драйверов…", "Installing drivers…");
+                if (Downloads.Busy) return L.T("Скачивание драйверов: осталось ", "Downloading drivers: ") + Downloads.Pending + L.T("", " left");
                 var parts = new List<string>();
                 if (Inventory.DevicesLoaded)
                     parts.Add(L.T("Устройств: ", "Devices: ") + Inventory.Devices.Count);

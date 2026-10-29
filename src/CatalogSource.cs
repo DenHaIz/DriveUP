@@ -266,9 +266,20 @@ namespace DriveUp
         }
 
         /// <summary>
-        /// Downloads a catalog driver into a protected folder and opens it on the Install tab (where it is
-        /// unpacked, matched to the devices and installed after the usual confirmation).
+        /// Downloads a catalog driver into a new protected folder (progress(done, total)) and returns the .cab;
+        /// the Install tab unpacks it, matches it to the devices and installs it after the usual confirmation.
         /// </summary>
+        public static string Download(string updateId, Action<long, long> progress)
+        {
+            string url = DownloadUrl(updateId);
+            string dir = InfFiles.NewDownloadDir();
+            string file = Path.Combine(dir, Path.GetFileName(new Uri(url).LocalPath));
+            if (!file.EndsWith(".cab", StringComparison.OrdinalIgnoreCase)) throw new IOException(L.T("это не пакет драйвера (.cab)", "not a driver package (.cab)"));
+            VendorCheck.DownloadFile(url, file, 2L << 30, null, progress);
+            return file;
+        }
+
+        /// <summary>One driver from the Devices tab: downloaded now and opened on the Install tab.</summary>
         public static void Fetch(IHost host, Control ui, string updateId, string title, long size)
         {
             host.BeginBusy();
@@ -276,14 +287,7 @@ namespace DriveUp
             var th = new Thread(() =>
             {
                 string file = null, error = null;
-                try
-                {
-                    string url = DownloadUrl(updateId);
-                    string dir = InfFiles.NewDownloadDir();
-                    file = Path.Combine(dir, Path.GetFileName(new Uri(url).LocalPath));
-                    if (!file.EndsWith(".cab", StringComparison.OrdinalIgnoreCase)) throw new IOException(L.T("это не пакет драйвера (.cab)", "not a driver package (.cab)"));
-                    VendorCheck.DownloadFile(url, file, 2L << 30);
-                }
+                try { file = Download(updateId, null); }
                 catch (Exception ex) { error = ex.Message; }
                 try
                 {

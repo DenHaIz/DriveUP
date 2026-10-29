@@ -65,6 +65,8 @@ namespace DriveUp
             if (gpu.Length > 0) parts.Add(Regex.Replace(gpu, @"\((R|TM)\)|NVIDIA\s+|AMD\s+|Intel\s+", "", RegexOptions.IgnoreCase).Trim());
             parts.Add((Server ? "Windows Server" : "Windows " + (Windows11 ? "11" : "10")));
             if (Managed) parts.Add(L.T("управляется организацией", "managed by an organisation"));
+            // Elevated with another account's password: whose settings are changed.
+            if (DesktopUser.Other) parts.Add(L.T("настройки пользователя ", "settings of ") + DesktopUser.Name);
             return string.Join(" · ", parts);
         }
 
@@ -225,8 +227,30 @@ namespace DriveUp
                 string p = TestRoot + "\\" + (machine ? "HKLM" : "HKCU") + "\\" + path;
                 return create ? Registry.CurrentUser.CreateSubKey(p) : Registry.CurrentUser.OpenSubKey(p, write);
             }
+            string other = machine ? null : DesktopUser.OtherSid;
+            if (other != null)
+            {
+                // Elevated as another account: the person at the desktop's own hive.
+                using (var users = RegistryKey.OpenBaseKey(RegistryHive.Users, RegistryView.Registry64))
+                {
+                    string p = UserPath(other, path);
+                    return create ? users.CreateSubKey(p) : users.OpenSubKey(p, write);
+                }
+            }
             using (var root = RegistryKey.OpenBaseKey(machine ? RegistryHive.LocalMachine : RegistryHive.CurrentUser, RegistryView.Registry64))
                 return create ? root.CreateSubKey(path) : root.OpenSubKey(path, write);
+        }
+
+        /// <summary>
+        /// An HKCU path inside HKEY_USERS for this SID. HKCU\Software\Classes is the user's own classes
+        /// hive (UsrClass.dat), loaded separately as SID_Classes.
+        /// </summary>
+        public static string UserPath(string sid, string path)
+        {
+            const string Classes = @"Software\Classes";
+            if (path.Equals(Classes, StringComparison.OrdinalIgnoreCase)) return sid + "_Classes";
+            if (path.StartsWith(Classes + "\\", StringComparison.OrdinalIgnoreCase)) return sid + "_Classes\\" + path.Substring(Classes.Length + 1);
+            return sid + "\\" + path;
         }
 
         public static object Get(bool machine, string path, string name)
@@ -628,12 +652,14 @@ namespace DriveUp
     /// <summary>How long a submenu waits before it opens (ms, default 400).</summary>
     class MenuDelay : Tweak
     {
+        const string Desk = @"Control Panel\Desktop";
         [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(int action, int param, ref int value, int winIni);
         [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(int action, int param, IntPtr value, int winIni);
 
         public override string Capture()
         {
             if (Reg.TestRoot != null) return Convert.ToString(Reg.Get(false, "Menu", "Delay") ?? "400");
+            if (DesktopUser.Other) return Reg.Get(false, Desk, "MenuShowDelay") as string ?? "400";
             int v = 400;
             SystemParametersInfo(0x006A /* SPI_GETMENUSHOWDELAY */, 0, ref v, 0);
             return v.ToString(CultureInfo.InvariantCulture);
@@ -647,6 +673,8 @@ namespace DriveUp
             int v;
             if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return;
             if (Reg.TestRoot != null) { Reg.SetString(false, "Menu", "Delay", value); return; }
+            // Elevated as another account: the desktop user's own value (applied at their next sign-in).
+            if (DesktopUser.Other) { Reg.SetString(false, Desk, "MenuShowDelay", v.ToString(CultureInfo.InvariantCulture)); return; }
             if (!SystemParametersInfo(0x006B /* SPI_SETMENUSHOWDELAY */, v, IntPtr.Zero, 1 | 2)) throw new System.ComponentModel.Win32Exception();
         }
 
@@ -733,6 +761,9 @@ namespace DriveUp
     /// <summary>"Enhance pointer precision" (mouse acceleration).</summary>
     class MouseAcceleration : Tweak
     {
+        const string Mouse = @"Control Panel\Mouse";
+        static readonly string[] Names = { "MouseThreshold1", "MouseThreshold2", "MouseSpeed" };
+        static readonly int[] Defaults = { 6, 10, 1 };
         [DllImport("user32.dll", SetLastError = true)]
         static extern bool SystemParametersInfo(int action, int param, int[] value, int winIni);
 
@@ -743,6 +774,12 @@ namespace DriveUp
                 string s = Reg.Get(false, "Mouse", "Speed") as string;
                 return (s ?? "6,10,1").Split(',').Select(int.Parse).ToArray();
             }
+            if (DesktopUser.Other)
+                return Enumerable.Range(0, 3).Select(i =>
+                {
+                    int n;
+                    return int.TryParse(Reg.Get(false, Mouse, Names[i]) as string, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) ? n : Defaults[i];
+                }).ToArray();
             var v = new int[3];
             if (!SystemParametersInfo(3 /* SPI_GETMOUSE */, 0, v, 0)) throw new System.ComponentModel.Win32Exception();
             return v;
@@ -751,6 +788,12 @@ namespace DriveUp
         void Write(int[] v)
         {
             if (Reg.TestRoot != null) { Reg.SetString(false, "Mouse", "Speed", string.Join(",", v)); return; }
+            // Elevated as another account: the desktop user's own values (applied at their next sign-in).
+            if (DesktopUser.Other)
+            {
+                for (int i = 0; i < 3; i++) Reg.SetString(false, Mouse, Names[i], v[i].ToString(CultureInfo.InvariantCulture));
+                return;
+            }
             // SPIF_UPDATEINIFILE | SPIF_SENDCHANGE: saved for the user and applied right away.
             if (!SystemParametersInfo(4 /* SPI_SETMOUSE */, 0, v, 1 | 2)) throw new System.ComponentModel.Win32Exception();
         }
@@ -1019,6 +1062,16 @@ namespace DriveUp
         readonly Guid sub, setting;
         /// <summary>Text for one raw value of the setting.</summary>
         public Func<uint, string> Text = v => v.ToString(CultureInfo.InvariantCulture);
+        /// <summary>
+        /// Only the battery side is this setting's (a separate, opt-in row next to the mains one): shown as
+        /// the battery value, and putting it back leaves the mains side as it is.
+        /// </summary>
+        public bool BatteryOnly;
+        /// <summary>
+        /// The mains row's battery-only partner: while that one is changed, or on a laptop (where the mains row
+        /// never sets the battery side), putting the mains row back leaves the battery side as it is.
+        /// </summary>
+        public PowerSetting Battery;
 
         public PowerSetting(Guid sub, Guid setting)
         {
@@ -1051,6 +1104,8 @@ namespace DriveUp
                 Guid scheme;
                 uint ac, dc;
                 if (parts.Length != 3 || !Guid.TryParse(parts[0], out scheme) || !uint.TryParse(parts[1], out ac) || !uint.TryParse(parts[2], out dc)) continue;
+                if (BatteryOnly) ac = PowerApi.Read(scheme, sub, setting, true);
+                else if (Battery != null && (Tuner.IsSaved(Battery.Id) || (Tuner.Pc != null && Tuner.Pc.Mobile))) dc = PowerApi.Read(scheme, sub, setting, false);
                 PowerApi.Write(scheme, sub, setting, ac, dc);
                 if (scheme == active) touched = true;
             }
@@ -1089,6 +1144,7 @@ namespace DriveUp
             if (v.Length != 2) return "?";
             uint ac, dc;
             bool hasAc = uint.TryParse(v[0], out ac), hasDc = uint.TryParse(v[1], out dc);
+            if (BatteryOnly) return hasDc ? Text(dc) : "?";
             bool laptop = Tuner.Pc != null && Tuner.Pc.Laptop;
             if (hasAc && (!laptop || (hasDc && ac == dc))) return Text(ac);
             if (hasAc && !hasDc) return Text(ac) + L.T(" от сети", " on mains");
