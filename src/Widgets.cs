@@ -35,11 +35,19 @@ namespace DriveUp
         {
             var p = Theme.Current;
             var g = e.Graphics;
-            g.Clear(Parent != null ? Parent.BackColor : p.Bg);
+            // The body and the border cover everything but the corners: only those get the parent's colour.
+            int c = Theme.S(8) + 1;
+            using (var b = new SolidBrush(Parent != null ? Parent.BackColor : p.Bg))
+            {
+                g.FillRectangle(b, 0, 0, c, c);
+                g.FillRectangle(b, Width - c, 0, c, c);
+                g.FillRectangle(b, 0, Height - c, c, c);
+                g.FillRectangle(b, Width - c, Height - c, c, c);
+            }
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var r = new RectangleF(0.5f, 0.5f, Width - 1, Height - 1);
-            Theme.FillRound(g, p.Surface, r, Theme.S(8));
-            Theme.DrawRound(g, p.Border, r, Theme.S(8));
+            Theme.FillRoundFast(g, p.Surface, r, Theme.S(8));
+            Theme.DrawRoundFast(g, p.Border, r, Theme.S(8));
             if (Title.Length > 0 && TitleHeight > 0)
                 TextDraw.DrawText(g, Title, Theme.HeadFont, new Rectangle(Theme.S(18), 0, Width - Theme.S(36), TitleHeight), p.Text,
                     TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
@@ -409,7 +417,38 @@ namespace DriveUp
         {
             float from;
             if (!map.TryGetValue(key, out from)) from = 0;
-            Anim.Run(Tuple.Create(this, key, tag), ms, t => { map[key] = from + (to - from) * t; ClampScroll(); Invalidate(); }, null, ease);
+            // Hover changes one row: only that row is painted again.
+            object row = tag == "h" ? key : (tag == "ha" ? ((Tuple<object, string>)key).Item1 : null);
+            Anim.Run(Tuple.Create(this, key, tag), ms, t =>
+            {
+                map[key] = from + (to - from) * t;
+                if (row != null) InvalidateRow(row);
+                else
+                {
+                    ClampScroll();
+                    Invalidate();
+                }
+            }, null, ease);
+        }
+
+        /// <summary>Repaints the row of a group or an item where it is drawn now (everything when it is not found).</summary>
+        void InvalidateRow(object o)
+        {
+            float y = -(float)Math.Round(scroll);
+            foreach (var g in Groups)
+            {
+                if (g == o) { Invalidate(new Rectangle(0, (int)y - 1, Width, GroupH + 2)); return; }
+                y += GroupH;
+                float ex = Get(expand, g);
+                int idx = g.Items.IndexOf(o as CatItem);
+                if (idx >= 0)
+                {
+                    Invalidate(new Rectangle(0, (int)(y + idx * ItemH - (1 - ex) * S(10)) - 1, Width, ItemH + 2));
+                    return;
+                }
+                y += (float)Math.Round(g.Items.Count * ItemH * ex);
+            }
+            Invalidate();
         }
 
         float Get(Dictionary<object, float> map, object key)
@@ -657,12 +696,14 @@ namespace DriveUp
             // Whole pixels everywhere: text snaps to pixels, so shapes must too or rows shimmer while moving.
             float y = -(float)Math.Round(scroll);
             int w = Width - S(10);
+            // Only what lies in the area being repainted (a hover repaints one row).
+            var clip = e.ClipRectangle;
             for (int gi = 0; gi < Groups.Count; gi++)
             {
                 var grp = Groups[gi];
                 float ex = Get(expand, grp);
                 float block = (float)Math.Round(grp.Items.Count * ItemH * ex);
-                if (y + GroupH + block >= 0 && y < Height) PaintGroup(g, grp, y, w, bg, ex);
+                if (y + GroupH >= clip.Top && y < Math.Min(Height, clip.Bottom)) PaintGroup(g, grp, y, w, bg, ex);
                 y += GroupH;
                 if (block > 0.5f && y < Height && y + block > 0)
                 {
@@ -671,7 +712,7 @@ namespace DriveUp
                     for (int i = 0; i < grp.Items.Count; i++)
                     {
                         float iy = (float)Math.Round(y + i * ItemH - (1 - ex) * S(10));
-                        if (iy + ItemH < 0 || iy > Height) continue;
+                        if (iy + ItemH < Math.Max(0, clip.Top) || iy > Math.Min(Height, clip.Bottom)) continue;
                         PaintItem(g, grp.Items[i], iy, w, bg, ex);
                     }
                     g.Restore(state);

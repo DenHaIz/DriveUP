@@ -386,11 +386,10 @@ namespace DriveUp
             }
         }
 
-        /// <summary>Sets (value) or removes (null: "not configured") a machine policy DWORD and has Windows apply it now.</summary>
-        public static void SetDword(string path, string name, int? value)
+        /// <summary>Runs work with the local Group Policy object (apartment-threaded: its own STA thread, whatever thread asks).</summary>
+        static void WithGpo(bool save, Action<RegistryKey> work)
         {
             Exception error = null;
-            // The Group Policy object is apartment-threaded: its own STA thread, whatever thread asks.
             var t = new System.Threading.Thread(() =>
             {
                 IGroupPolicyObject gpo = null;
@@ -400,14 +399,8 @@ namespace DriveUp
                     gpo.OpenLocalMachineGPO(LoadRegistry);
                     IntPtr h;
                     gpo.GetRegistryKey(MachineSection, out h);
-                    using (var root = RegistryKey.FromHandle(new Microsoft.Win32.SafeHandles.SafeRegistryHandle(h, true)))
-                    {
-                        if (value != null)
-                            using (var k = root.CreateSubKey(path)) k.SetValue(name, value.Value, RegistryValueKind.DWord);
-                        else
-                            using (var k = root.OpenSubKey(path, true)) if (k != null) k.DeleteValue(name, false);
-                    }
-                    gpo.Save(true, true, RegistryExtension, PolicySnapin);
+                    using (var root = RegistryKey.FromHandle(new Microsoft.Win32.SafeHandles.SafeRegistryHandle(h, true))) work(root);
+                    if (save) gpo.Save(true, true, RegistryExtension, PolicySnapin);
                 }
                 catch (Exception ex) { error = ex; }
                 finally { if (gpo != null) Marshal.ReleaseComObject(gpo); }
@@ -417,13 +410,55 @@ namespace DriveUp
             t.Start();
             t.Join();
             if (error != null) throw error;
+        }
 
-            // Applied by the Group Policy service in the background: wait for the value to arrive.
+        /// <summary>The value the local Group Policy has for this machine policy (null: not configured), applied yet or not.</summary>
+        public static int? GetDword(string path, string name)
+        {
+            int? v = null;
+            WithGpo(false, root =>
+            {
+                using (var k = root.OpenSubKey(path))
+                {
+                    object o = k != null ? k.GetValue(name) : null;
+                    if (o is int) v = (int)o;
+                }
+            });
+            return v;
+        }
+
+        /// <summary>
+        /// Sets (value) or removes (null: "not configured") a machine policy DWORD and has Windows apply it now:
+        /// gpupdate, as an administrator would, and up to a minute for it. A busy Group Policy service may take
+        /// longer: the policy is saved all the same and applies at its next refresh or the restart (the setting
+        /// is marked "after a restart"); returns false then.
+        /// </summary>
+        public static bool SetDword(string path, string name, int? value)
+        {
+            WithGpo(true, root =>
+            {
+                if (value != null)
+                    using (var k = root.CreateSubKey(path)) k.SetValue(name, value.Value, RegistryValueKind.DWord);
+                else
+                    using (var k = root.OpenSubKey(path, true)) if (k != null) k.DeleteValue(name, false);
+            });
             RefreshPolicyEx(true, Force);
-            for (int i = 0; i < 60 && Reg.Dword(true, path, name) != value; i++) System.Threading.Thread.Sleep(250);
-            if (Reg.Dword(true, path, name) != value)
-                throw new InvalidOperationException(L.T("Групповая политика Windows не применилась за 15 секунд — попробуйте ещё раз",
-                                                        "Windows Group Policy did not apply within 15 seconds — try again"));
+            for (int i = 0; i < 8 && Reg.Dword(true, path, name) != value; i++) System.Threading.Thread.Sleep(250);
+            if (Reg.Dword(true, path, name) == value) return true;
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo(System.IO.Path.Combine(Environment.SystemDirectory, "gpupdate.exe"), "/target:computer /force /wait:60")
+                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true };
+                using (var p = System.Diagnostics.Process.Start(psi))
+                {
+                    p.StandardInput.Close();   // never waits on a "restart now?" question
+                    p.StandardOutput.ReadToEndAsync();
+                    if (!p.WaitForExit(75000)) try { p.Kill(); } catch { }
+                }
+            }
+            catch { }
+            for (int i = 0; i < 20 && Reg.Dword(true, path, name) != value; i++) System.Threading.Thread.Sleep(250);
+            return Reg.Dword(true, path, name) == value;
         }
     }
 
@@ -487,7 +522,20 @@ namespace DriveUp
             this.off = off;
         }
 
-        public override string Capture() { return Reg.Capture(machine, path, name); }
+        public override string Capture()
+        {
+            string raw = Reg.Capture(machine, path, name);
+            if (!Policy || !LocalPolicy.Available) return raw;
+            // Saved in the local Group Policy but not applied yet (the Group Policy service was slow): that is
+            // what the setting will be — after a restart at the latest — so it is shown and kept as such.
+            try
+            {
+                int? pending = LocalPolicy.GetDword(path, name);
+                if (pending != null && raw != "d:" + pending.Value.ToString(CultureInfo.InvariantCulture)) return "d:" + pending.Value.ToString(CultureInfo.InvariantCulture);
+            }
+            catch { }
+            return raw;
+        }
 
         public override void Restore(string raw)
         {

@@ -823,8 +823,12 @@ namespace DriveUp
             catch { found = new List<StartupFound>(); }
             foreach (var f in found)
             {
-                bool off = mode.StartupOff.Contains(f.Rule.Level), offer = mode.StartupOffer.Contains(f.Rule.Level);
+                bool off = mode.StartupOff.Contains(f.Rule.Level), offer = mode.StartupOffer.Contains(f.Rule.Level) || f.Rule.Level == 4;
                 if (!off && !offer) continue;
+                // An unknown program that does not start anyway is not worth a row (unless DriveUP turned it off).
+                if (f.Rule.Level == 4 && !IsSaved(f.Tweak.Id))
+                    try { if (f.Tweak.Current() == "0") continue; }
+                    catch { continue; }
                 // A program found twice (Run key and Store task) is offered once per entry; both are real.
                 steps.Add(new TuneStep { Tweak = f.Tweak, Value = "0", Reason = f.Rule.Reason, Optional = !off || f.Rule.Warn != null, Warn = f.Rule.Warn });
             }

@@ -90,7 +90,7 @@ namespace DriveUp
 
             var r = new RectangleF(0.5f, 0.5f, Width - 1, Height - 1);
             Color fill = Anim.Blend(Anim.Blend(p.Surface, p.Hover, h * 0.45f), p.Accent, s * (p.IsDark ? 0.1f : 0.035f));
-            Theme.FillRound(g, fill, r, S(10));
+            Theme.FillRoundFast(g, fill, r, S(10));
             using (var pen = new Pen(Anim.Blend(Anim.Blend(p.Border, p.TextDim, h * 0.35f), p.Accent, s), 1 + s * Math.Max(1, S(1))))
             using (var path = Theme.RoundRect(new RectangleF(r.X + s * 0.5f, r.Y + s * 0.5f, r.Width - s, r.Height - s), S(10)))
                 g.DrawPath(pen, path);
@@ -189,7 +189,28 @@ namespace DriveUp
             float from;
             if (!map.TryGetValue(key, out from)) from = 0;
             if (Math.Abs(from - to) < 0.001f) { if (done != null) done(); return; }
-            Anim.Run(Tuple.Create(this, key, tag), ms, t => { map[key] = from + (to - from) * t; Invalidate(); }, done);
+            // Hover and button hover change one row: only that row is painted again (the whole list cost
+            // ~8 ms a frame at 150 %).
+            bool oneRow = tag == "h" || tag == "b" || tag == "s";
+            Anim.Run(Tuple.Create(this, key, tag), ms, t => { map[key] = from + (to - from) * t; if (oneRow) InvalidateRow(key); else Invalidate(); }, done);
+        }
+
+        /// <summary>Repaints one row (where it is drawn now), or everything when it is not on screen.</summary>
+        void InvalidateRow(TuneRow row)
+        {
+            float y = -(float)Math.Round(scroll);
+            foreach (var r in rows)
+            {
+                float h = H(r);
+                if (r == row)
+                {
+                    // A little margin: rows rise into place as they appear, and the separator lines sit on the edges.
+                    Invalidate(new Rectangle(0, (int)y - S(2), Width, (int)Math.Ceiling(h) + S(16)));
+                    return;
+                }
+                y += h;
+            }
+            Invalidate();
         }
 
         static float Get(Dictionary<TuneRow, float> map, TuneRow key)
@@ -222,7 +243,7 @@ namespace DriveUp
                 Anim.Frame(spinKey, () =>
                 {
                     if (IsDisposed || !rows.Any(r => r.State == TuneState.Working)) return false;
-                    if (Visible) Invalidate();
+                    if (Visible) foreach (var w in rows.Where(r => r.State == TuneState.Working).ToList()) InvalidateRow(w);
                     return true;
                 });
             Invalidate();
@@ -424,11 +445,13 @@ namespace DriveUp
             }
             float y = -(float)Math.Round(scroll);
             int w = Width - S(10);
+            // Only the rows in the area being repainted (a hover repaints one row).
+            var clip = e.ClipRectangle;
             for (int i = 0; i < rows.Count; i++)
             {
                 var r = rows[i];
                 float h = H(r);
-                if (y + h > 0 && y < Height && h > 0.5f)
+                if (y + h + S(12) > Math.Max(0, clip.Top) && y < Math.Min(Height, clip.Bottom) && h > 0.5f)
                 {
                     var state = g.Save();
                     g.SetClip(new RectangleF(0, y, Width, h));

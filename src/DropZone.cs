@@ -141,7 +141,7 @@ namespace DriveUp
             float sec = clock.ElapsedMilliseconds / 1000f;
 
             var r = new RectangleF(S(1), S(1), Width - S(2) - 1, Height - S(2) - 1);
-            Theme.FillRound(g, Anim.Blend(Anim.Blend(p.Surface, p.Accent, 0.05f * h + 0.08f * pl), bg, 0), r, S(12));
+            Theme.FillRoundFast(g, Anim.Blend(Anim.Blend(p.Surface, p.Accent, 0.05f * h + 0.08f * pl), bg, 0), r, S(12));
             using (var path = Theme.RoundRect(r, S(12)))
             using (var pen = new Pen(Anim.Blend(Anim.Blend(p.Border, p.TextDim, 0.35f), p.Accent, Math.Max(h, pl)), Math.Max(1.2f, S(2) * (0.75f + 0.25f * h)))
                    { DashStyle = DashStyle.Custom, DashPattern = new[] { 4f, 3f } })

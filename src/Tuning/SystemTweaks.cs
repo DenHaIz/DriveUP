@@ -328,7 +328,10 @@ namespace DriveUp
     /// <summary>Which startup programs are clutter, which are heavy but useful, which sync files.</summary>
     class StartupRule
     {
-        /// <summary>1 = clutter (helpers, pre-launchers, nags), 2 = heavy, can be started by hand, 3 = syncs files (only by choice).</summary>
+        /// <summary>
+        /// 1 = clutter (helpers, pre-launchers, nags), 2 = heavy, can be started by hand, 3 = syncs files (only by choice),
+        /// 4 = a program DriveUP does not know: offered in every mode, never ticked, only with confirmation.
+        /// </summary>
         public int Level;
         public Regex Match;
         public Func<string> Reason, Warn;
@@ -401,6 +404,47 @@ namespace DriveUp
                 () => L.T("файлы не синхронизируются", "files stop syncing"), "OneDrive", "GoogleDriveFS", "Dropbox", "YandexDisk2", "iCloudDrive", "iCloudServices", "MEGAsync"),
         };
 
+        /// <summary>
+        /// Never offered, not even as an unknown program: Windows itself, security software, VPNs and password managers,
+        /// drivers' helpers (sound, graphics, touchpads, pens, keyboards' keys) and the PC maker's utilities (keys, battery).
+        /// </summary>
+        static readonly Regex Protected = new Regex(
+            @"\\Windows\\(System32|SysWOW64|explorer)|%windir%|%SystemRoot%|SecurityHealth|Windows ?Defender|MsMpEng|ctfmon|OneDrive|" +
+            @"\bRtk|Realtek|RAVCpl|RAVBg|Waves|MaxxAudio|Dolby|\bDTS\b|Nahimic|SonicStudio|Conexant|SmartAudio|\bIDT\b|Sound ?Research|" +
+            @"igfx|IAStor|Intel|NVIDIA|\bnv[a-z]+\.exe|AMD|Radeon|\bATI\b|Synaptics|SynTP|\bELAN|ETD|\bAlps|Precision ?Touch|Wacom|" +
+            @"Bluetooth|BTTray|Lenovo|Vantage|\bASUS|Armoury|\bHP[A-Z]|\bHP\b|Hewlett|\bDell\b|Alienware|\bAcer\b|\bMSI\b|Huawei|Samsung|Razer Synapse|Logi(Options|tech Options)|" +
+            @"Kaspersky|\bavp|ESET|egui|Avast|\bAVG\b|Bitdefender|Norton|McAfee|Malwarebytes|Sophos|Dr\.?Web|Comodo|Avira|Trend ?Micro|Panda|Webroot|" +
+            @"VPN|WireGuard|AnyConnect|GlobalProtect|FortiClient|Pulse Secure|KeePass|Bitwarden|1Password|LastPass|Dashlane|" +
+            @"VMware|vmtoolsd|VBox|VirtualBox|Parallels|Hyper-?V|Citrix|" +
+            @"Microsoft Office|OfficeClickToRun|Teams Machine-Wide|DriveUP",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>A program DriveUP does not know: what it is and its catch.</summary>
+        static StartupRule Unknown(string command)
+        {
+            string exe = "";
+            var m = Regex.Match(command ?? "", @"(?:^""(?<p>[^""]+)""|^(?<p>\S+))");
+            if (m.Success)
+                try { exe = Path.GetFileNameWithoutExtension(m.Groups["p"].Value.Trim()); }
+                catch { }
+            return new StartupRule
+            {
+                Level = 4,
+                Reason = () => L.T("Запускается вместе с Windows — DriveUP не знает, нужна ли она вам сразу при входе", "Starts with Windows — DriveUP cannot tell whether you need it right at sign-in"),
+                Warn = () => L.T("отключайте, только если знаете эту программу", "turn it off only if you know this program"),
+                Processes = exe.Length > 0 ? new[] { exe } : new string[0],
+            };
+        }
+
+        /// <summary>The rule for a startup entry: a listed one, an unknown one (level 4), or null when it is never offered.</summary>
+        public static StartupRule RuleFor(string entry, string command)
+        {
+            string text = entry + " " + command;
+            var rule = Rules.FirstOrDefault(r => r.Match.IsMatch(text));
+            if (rule != null) return rule;
+            return Protected.IsMatch(text) ? null : Unknown(command);
+        }
+
         /// <summary>How many programs start with Windows now (any, not only the listed ones): for the measurement.</summary>
         public static int CountEnabled()
         {
@@ -437,8 +481,8 @@ namespace DriveUp
             var found = new List<StartupFound>();
             Action<bool, string, string, string> add = (machine, sub, entry, command) =>
             {
-                string text = entry + " " + command;
-                var rule = Rules.FirstOrDefault(r => r.Match.IsMatch(text));
+                // Listed programs, and since 1.6.1 every other one too (unknown: never ticked, only with confirmation).
+                var rule = RuleFor(entry, command);
                 if (rule == null) return;
                 var t = new StartupTweak(machine, sub, entry) { Processes = rule.Processes };
                 found.Add(new StartupFound { Tweak = t, Rule = rule });
@@ -448,7 +492,7 @@ namespace DriveUp
                 foreach (string task in Reg.SubKeyNames(false, PackagedStartupTweak.Root + "\\" + family))
                 {
                     if (Reg.Get(false, PackagedStartupTweak.Root + "\\" + family + "\\" + task, "State") == null) continue;
-                    var rule = Rules.FirstOrDefault(r => r.Match.IsMatch(family + " " + task));
+                    var rule = RuleFor(family, task);
                     if (rule != null) found.Add(new StartupFound { Tweak = new PackagedStartupTweak(family, task) { Processes = rule.Processes }, Rule = rule });
                 }
             foreach (var key in new[] { Tuple.Create(false, Cv, "Run"), Tuple.Create(true, Cv, "Run"), Tuple.Create(true, Cv32, "Run32") })
