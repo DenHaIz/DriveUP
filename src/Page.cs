@@ -110,7 +110,16 @@ namespace DriveUp
 
         protected static void SetButton(FlatButton b, string text)
         {
+            b.AltText = null;
             b.Text = text;
+            b.Width = b.PreferredWidth;
+        }
+
+        /// <summary>A caption with a changing tail (a count): as wide as in the wider language, so nothing moves on a language switch.</summary>
+        protected static void SetButton(FlatButton b, string ru, string en, string tail)
+        {
+            b.AltText = (L.En ? ru : en) + tail;
+            b.Text = L.T(ru, en) + tail;
             b.Width = b.PreferredWidth;
         }
 

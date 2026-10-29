@@ -209,7 +209,14 @@ namespace DriveUp
         void UpdateApplyText()
         {
             if (selected == null) SetButton(btnApply, L.T("Применить", "Apply"));
-            else SetButton(btnApply, L.T("Применить «", "Apply ") + selected.Name() + L.T("»", ""));
+            else
+            {
+                // The mode's name in the other language too (its pair is known): the button keeps its width.
+                string name = selected.Name(), other = L.Other(name) ?? name;
+                SetButton(btnApply, L.T("Применить «", "Apply ") + name + L.T("»", ""));
+                btnApply.AltText = L.En ? "Применить «" + other + "»" : "Apply " + other;
+                btnApply.Width = btnApply.PreferredWidth;
+            }
             LayoutList();
         }
 

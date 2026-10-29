@@ -100,15 +100,24 @@ namespace DriveUp
             Width = PreferredWidth;
         }
 
+        /// <summary>
+        /// Wide enough for the caption in either language, so buttons keep their size and place when the
+        /// language changes; the content is centred inside.
+        /// </summary>
+        /// <summary>The caption in the other language when it is not a plain pair (it has a number or a name in it).</summary>
+        public string AltText;
+
         public int PreferredWidth
         {
             get
             {
-                int w = S(12) * 2;
-                if (Glyph.Length > 0 && Theme.HasGlyphs) w += S(16) + (Text.Length > 0 ? S(8) : 0);
-                return w + MeasureWidth(Text, Font);
+                int text = L.Widest(Text, t => MeasureWidth(t, Font));
+                if (!string.IsNullOrEmpty(AltText)) text = Math.Max(text, MeasureWidth(AltText, Font));
+                return S(12) * 2 + GlyphPart + text;
             }
         }
+
+        int GlyphPart { get { return Glyph.Length > 0 && Theme.HasGlyphs ? S(16) + (Text.Length > 0 ? S(8) : 0) : 0; } }
 
         /// <summary>Fades the button in (used when it becomes visible).</summary>
         public void Appear()
@@ -212,7 +221,7 @@ namespace DriveUp
             Theme.FillRound(g, bg, r, S(6));
             if (Kind == ButtonKind.Normal || Kind == ButtonKind.Danger) Theme.DrawRound(g, border, r, S(6));
 
-            int content = PreferredWidth - S(24);
+            int content = GlyphPart + MeasureWidth(Text, Font);
             int x = Math.Max(S(12), (Width - content) / 2);
             if (Glyph.Length > 0 && Theme.HasGlyphs)
             {
@@ -264,12 +273,19 @@ namespace DriveUp
             Cursor = Cursors.Hand;
         }
 
+        /// <summary>Repaints one tab only (hover and selection colours change one tab at a time).</summary>
+        void InvalidateTab(int i)
+        {
+            if (i >= 0 && i < rects.Length) Invalidate(rects[i]);
+        }
+
         public void AddTab(string text, string glyph)
         {
+            int i = tabs.Count;
             tabs.Add(text);
             glyphs.Add(glyph);
-            hovers.Add(new Tweened(Invalidate));
-            sels.Add(new Tweened(Invalidate, tabs.Count - 1 == selected ? 1 : 0));
+            hovers.Add(new Tweened(() => InvalidateTab(i)));
+            sels.Add(new Tweened(() => InvalidateTab(i), i == selected ? 1 : 0));
             Relayout();
             var ind = IndicatorTarget(selected);
             indX = ind.X;
@@ -290,6 +306,9 @@ namespace DriveUp
         int GlyphSpace { get { return Theme.HasGlyphs ? S(20) + S(8) : 0; } }
 
         static FontFamily glyphFamily;
+        // Glyph outlines at the origin, per glyph and size: building them (AddString) on every paint of every
+        // tab made each frame of the underline's slide expensive.
+        static readonly Dictionary<string, GraphicsPath> glyphPaths = new Dictionary<string, GraphicsPath>();
 
         /// <summary>
         /// Tab icons: a little larger than the text and drawn as an outlined shape, so MDL2's hairline strokes
@@ -299,18 +318,34 @@ namespace DriveUp
         {
             if (!Theme.HasGlyphs || string.IsNullOrEmpty(glyph)) return;
             if (glyphFamily == null) glyphFamily = new FontFamily("Segoe MDL2 Assets");
-            using (var path = new GraphicsPath())
+            float size = 17f * Theme.Scale;
+            string key = glyph + "|" + size.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            GraphicsPath path;
+            if (!glyphPaths.TryGetValue(key, out path))
             {
-                path.AddString(glyph, glyphFamily, (int)FontStyle.Regular, 17f * Theme.Scale, PointF.Empty, StringFormat.GenericTypographic);
-                var b = path.GetBounds();
+                path = new GraphicsPath();
+                path.AddString(glyph, glyphFamily, (int)FontStyle.Regular, size, PointF.Empty, StringFormat.GenericTypographic);
+                var bb = path.GetBounds();
                 using (var m = new Matrix())
                 {
-                    m.Translate((float)Math.Round(r.X + (r.Width - b.Width) / 2f - b.X), (float)Math.Round(r.Y + (r.Height - b.Height) / 2f - b.Y));
+                    m.Translate(-bb.X, -bb.Y);
                     path.Transform(m);
                 }
-                using (var brush = new SolidBrush(c)) g.FillPath(brush, path);
-                using (var pen = new Pen(c, 0.85f * Theme.Scale) { LineJoin = LineJoin.Round }) g.DrawPath(pen, path);
+                glyphPaths[key] = path;
             }
+            var b = path.GetBounds();
+            var state = g.Save();
+            g.TranslateTransform((float)Math.Round(r.X + (r.Width - b.Width) / 2f), (float)Math.Round(r.Y + (r.Height - b.Height) / 2f));
+            using (var brush = new SolidBrush(c)) g.FillPath(brush, path);
+            using (var pen = new Pen(c, 0.85f * Theme.Scale) { LineJoin = LineJoin.Round }) g.DrawPath(pen, path);
+            g.Restore(state);
+        }
+
+        /// <summary>The strip the underline is drawn in, between two positions (with a pixel to spare).</summary>
+        Rectangle UnderlineStrip(float x0, float w0, float x1, float w1)
+        {
+            int left = (int)Math.Floor(Math.Min(x0, x1)) - S(2), right = (int)Math.Ceiling(Math.Max(x0 + w0, x1 + w1)) + S(2);
+            return new Rectangle(left, Height - S(3) - 1, right - left, S(3) + 2);
         }
 
         void Relayout()
@@ -319,7 +354,8 @@ namespace DriveUp
             int x = 0;
             for (int i = 0; i < tabs.Count; i++)
             {
-                int w = MeasureWidth(tabs[i], Font) + GlyphSpace + S(32);
+                // The longer of the two languages: tabs stay where they are when the language changes.
+                int w = L.Widest(tabs[i], t => MeasureWidth(t, Font)) + GlyphSpace + S(32);
                 rects[i] = new Rectangle(x, 0, w, Height);
                 x += w;
             }
@@ -344,14 +380,16 @@ namespace DriveUp
                 sels[value].To(1, 220);
                 float fx = indX, fw = indW;
                 var target = IndicatorTarget(value);
-                // As long as the page transition (MainForm): both end on the same frame, before the
-                // new page's first real paint.
-                Anim.Run(indKey, 260, t =>
+                // As long as the page transition (MainForm, 320 ms): both end on the same frame. A sine ease:
+                // its fastest step is half of the cubic one's, so the slide stays even. Only the strip under the
+                // tabs is repainted on each frame.
+                Anim.Run(indKey, 320, t =>
                 {
+                    float px = indX, pw = indW;
                     indX = Anim.Lerp(fx, target.X, t);
                     indW = Anim.Lerp(fw, target.Width, t);
-                    Invalidate();
-                }, null, Anim.EaseInOut);
+                    Invalidate(UnderlineStrip(px, pw, indX, indW));
+                }, null, Anim.SineInOut);
                 if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty);
             }
         }
@@ -399,9 +437,12 @@ namespace DriveUp
             Color pb = ParentBg;
             g.Clear(pb);
             g.SmoothingMode = SmoothingMode.AntiAlias;
+            var clip = e.ClipRectangle;
             for (int i = 0; i < tabs.Count; i++)
             {
                 var r = rects[i];
+                // Only the tabs in the area being repainted (the underline's strip, a hovered tab).
+                if (!r.IntersectsWith(clip)) continue;
                 float h = hovers[i].Value, s = sels[i].Value;
                 if (h > 0.01f)
                     Theme.FillRound(g, Anim.Blend(pb, p.Hover, h * 0.7f * (1 - s)),
@@ -425,7 +466,7 @@ namespace DriveUp
         public void ApplyScale()
         {
             Height = S(32);
-            Width = S(36) + S(10) + MeasureWidth(Text, Font) + S(2);
+            Width = S(36) + S(10) + L.Widest(Text, x => MeasureWidth(x, Font)) + S(2);
         }
 
         bool isChecked;
@@ -440,7 +481,7 @@ namespace DriveUp
             hover = new Tweened(Invalidate);
             enabledT = new Tweened(Invalidate, 1f);
             Height = S(32);
-            Width = S(36) + S(10) + MeasureWidth(text, Font) + S(2);
+            Width = S(36) + S(10) + L.Widest(text, t => MeasureWidth(t, Font)) + S(2);
         }
 
         public bool Checked
@@ -465,7 +506,7 @@ namespace DriveUp
         protected override void OnTextChanged(EventArgs e)
         {
             base.OnTextChanged(e);
-            Width = S(36) + S(10) + MeasureWidth(Text, Font) + S(2);
+            Width = S(36) + S(10) + L.Widest(Text, x => MeasureWidth(x, Font)) + S(2);
             Invalidate();
         }
 
@@ -549,7 +590,7 @@ namespace DriveUp
             for (int i = 0; i < texts.Length; i++)
             {
                 segX[i] = x;
-                segW[i] = Math.Max(S(40), MeasureWidth(texts[i], Font) + S(32) + (HasGlyphs ? S(22) : 0));
+                segW[i] = Math.Max(S(40), (texts[i].Length > 0 ? L.Widest(texts[i], t => MeasureWidth(t, Font)) : 0) + S(32) + (HasGlyphs ? S(22) : 0));
                 x += segW[i];
             }
             Size = new Size((int)Math.Ceiling(x) + S(3), S(Theme.ControlH));
@@ -573,7 +614,8 @@ namespace DriveUp
                 if (value == selected) return;
                 selected = value;
                 float from = pill;
-                Anim.Run(pillKey, 300, t => { pill = Anim.Lerp(from, value, t); Invalidate(); }, null, Anim.EaseInOut);
+                // Sine ease: the pill's fastest step is about half the cubic one's, so it glides evenly.
+                Anim.Run(pillKey, 300, t => { pill = Anim.Lerp(from, value, t); Invalidate(); }, null, Anim.SineInOut);
                 if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty);
             }
         }

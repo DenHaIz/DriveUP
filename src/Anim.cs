@@ -122,6 +122,7 @@ namespace DriveUp
             Interlocked.Exchange(ref posted, 0);
             lastFrame = now;
             RunTweens(now);
+            PaintNow();
             if (FrameLog != null) Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                 "F\t{0:F1}\t{1:F1}\t{2:F1}\t{3}", now, began - now, Now - began, tweens.Count));
         }
@@ -143,6 +144,22 @@ namespace DriveUp
                 try { System.IO.File.AppendAllText(FrameLog, logBuf.ToString()); } catch { }
                 logBuf.Clear();
             }
+        }
+
+        [DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr hwnd, IntPtr rect, IntPtr region, uint flags);
+
+        /// <summary>
+        /// Paints whatever this frame's tweens invalidated, now. WM_PAINT is the lowest-priority message: when a
+        /// frame's work (a transition's synchronous overlay paint) takes most of the refresh interval, the next
+        /// frame is already queued before Windows gets to it, so a control that only invalidates (the tab
+        /// underline) stood still for several frames and then jumped. Painting here keeps every animation in step.
+        /// </summary>
+        static void PaintNow()
+        {
+            if (Application.OpenForms.Count == 0) return;
+            foreach (Form f in new System.Collections.ArrayList(Application.OpenForms))
+                // RDW_UPDATENOW | RDW_ALLCHILDREN: only what is invalid is painted.
+                if (f.IsHandleCreated && f.Visible && !f.IsDisposed) RedrawWindow(f.Handle, IntPtr.Zero, IntPtr.Zero, 0x0100 | 0x0080);
         }
 
         static void RunTweens(double now)
@@ -268,6 +285,12 @@ namespace DriveUp
         {
             float u = 1 - t;
             return 1 - u * u * u;
+        }
+
+        /// <summary>Sine ease in-out: at its fastest only ~1.6× the average speed (cubic: 3×), so the steps stay small.</summary>
+        public static float SineInOut(float t)
+        {
+            return (float)(0.5 - 0.5 * Math.Cos(Math.PI * Math.Max(0, Math.Min(1, t))));
         }
 
         public static float EaseInOut(float t)

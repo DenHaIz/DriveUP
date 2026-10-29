@@ -149,7 +149,7 @@ namespace DriveUp
             themeSwitch.SetTexts(themeTexts);
             compactTheme = false;
             tip.SetToolTip(themeSwitch, L.T("Тема оформления", "Theme"));
-            SetButton(btnLang, L.En ? "EN" : "RU");
+            SetButton(btnLang, L.T("RU", "EN"));
             tip.SetToolTip(btnLang, L.T("Язык интерфейса: русский. Switch to English", "Interface language: English. Переключить на русский"));
             SetButton(btnJournal, L.T("Журнал", "Journal"));
             tip.SetToolTip(btnJournal, L.T("Что DriveUP устанавливал, сохранял и удалял", "What DriveUP installed, saved and removed"));
@@ -485,6 +485,7 @@ namespace DriveUp
             };
             if (instantTab) show();
             // A little longer and a shorter slide, settling gently (quartic ease-out): calmer than before.
+            // The tab underline (TabBar) slides for the same 320 ms.
             else Transition.CrossFade(pageHost, show, 320, dir * S(28), t => { float u = 1 - t; return 1 - u * u * u * u; });
             pages[idx].Activate();
             UpdateStatus();

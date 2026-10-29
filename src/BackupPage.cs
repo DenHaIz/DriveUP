@@ -281,10 +281,9 @@ namespace DriveUp
         {
             int sel = packages.Count(p => p.IsChecked);
             int old = packages.Count(p => p.Outdated);
-            string b1 = L.T("Сохранить копию", "Back up") + (sel > 0 ? " (" + sel + ")" : "");
-            if (btnBackup.Text != b1) SetButton(btnBackup, b1);
-            string b3 = L.T("Удалить старые версии", "Remove old versions") + (old > 0 ? " (" + old + ")" : "");
-            if (btnCleanup.Text != b3) SetButton(btnCleanup, b3);
+            string t1 = sel > 0 ? " (" + sel + ")" : "", t3 = old > 0 ? " (" + old + ")" : "";
+            if (btnBackup.Text != L.T("Сохранить копию", "Back up") + t1) SetButton(btnBackup, "Сохранить копию", "Back up", t1);
+            if (btnCleanup.Text != L.T("Удалить старые версии", "Remove old versions") + t3) SetButton(btnCleanup, "Удалить старые версии", "Remove old versions", t3);
             btnBackup.Enabled = sel > 0 && !working && !loading;
             btnCleanup.Enabled = old > 0 && !working && !loading;
             btnRestore.Enabled = !working;

@@ -12,9 +12,36 @@ namespace DriveUp
     {
         public static bool En;
 
+        // Every pair seen, both ways: a control sized for its text can take the longer of the two, so
+        // nothing moves when the language changes (Other).
+        static readonly System.Collections.Generic.Dictionary<string, string> pairs = new System.Collections.Generic.Dictionary<string, string>();
+
         public static string T(string ru, string en)
         {
+            if (ru != en && ru.Length > 0 && en.Length > 0)
+                lock (pairs)
+                    if (!pairs.ContainsKey(ru))
+                    {
+                        pairs[ru] = en;
+                        if (!pairs.ContainsKey(en)) pairs[en] = ru;
+                    }
             return En ? en : ru;
+        }
+
+        /// <summary>The same text in the other language (null when it was not made by T, e.g. with a number in it).</summary>
+        public static string Other(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            string o;
+            lock (pairs) return pairs.TryGetValue(text, out o) ? o : null;
+        }
+
+        /// <summary>The wider of a text and its other-language twin, as measure() sees them.</summary>
+        public static int Widest(string text, Func<string, int> measure)
+        {
+            int w = measure(text ?? "");
+            string o = Other(text);
+            return o != null ? Math.Max(w, measure(o)) : w;
         }
 
         public static void Init()
