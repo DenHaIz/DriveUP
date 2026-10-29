@@ -43,6 +43,21 @@ namespace DriveUp
         /// <summary>Current time in milliseconds (QPC based).</summary>
         public static double Now { get { return Stopwatch.GetTimestamp() / TicksPerMs; } }
 
+        static double lastFrame;
+
+        /// <summary>
+        /// The time continuous animations draw for (ms): the display frame being painted, so motion advances by
+        /// exactly one refresh per frame however late the paint itself runs. Between animations, the clock.
+        /// </summary>
+        public static double FrameNow
+        {
+            get
+            {
+                double now = Now;
+                return now - lastFrame < 100 ? lastFrame : now;
+            }
+        }
+
         /// <summary>Runs step(t) with t going 0..1 over ms milliseconds. A new tween with the same key replaces the old one.</summary>
         public static void Run(object key, int ms, Action<float> step, Action done = null, Func<float, float> ease = null)
         {
@@ -105,6 +120,7 @@ namespace DriveUp
             double now = Interlocked.Read(ref frameStamp) / TicksPerMs;
             double began = FrameLog != null ? Now : 0;
             Interlocked.Exchange(ref posted, 0);
+            lastFrame = now;
             RunTweens(now);
             if (FrameLog != null) Log(string.Format(System.Globalization.CultureInfo.InvariantCulture,
                 "F\t{0:F1}\t{1:F1}\t{2:F1}\t{3}", now, began - now, Now - began, tweens.Count));

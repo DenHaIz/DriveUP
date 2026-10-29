@@ -190,7 +190,7 @@ namespace DriveUp
     /// </summary>
     static class Shimmer
     {
-        static readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
         const int Period = 1500;
 
         public static Brush Make(int width, Color bg)
@@ -201,7 +201,7 @@ namespace DriveUp
             float w = Math.Max(1, width);
             float band = Math.Max(Theme.S(140), w * 0.3f);
             float left = -2 * band, span = w + 4 * band;
-            float phase = Anim.EaseInOut((clock.ElapsedMilliseconds % Period) / (float)Period);
+            float phase = Anim.EaseInOut((float)(Anim.FrameNow % Period) / Period);
             float c = -band + phase * (w + 2 * band);
             var brush = new LinearGradientBrush(new RectangleF(left, 0, span, 1), bar, bar, 0f);
             brush.InterpolationColors = new ColorBlend

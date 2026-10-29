@@ -760,7 +760,6 @@ namespace DriveUp
     class BusyRing : SkinControl
     {
         readonly Tweened alpha;
-        readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         readonly object frameKey = new object();
         bool active;
 
@@ -798,7 +797,7 @@ namespace DriveUp
             float a = alpha.Value;
             if (a <= 0.01f) return;
             var p = Theme.Current;
-            double t = clock.Elapsed.TotalMilliseconds;
+            double t = Anim.FrameNow;
             // One turn in 1.5 s; the arc breathes between a quarter and two thirds of the circle every 2.6 s.
             float turn = (float)(t % 1500 / 1500 * 360);
             float k = (float)(0.5 - 0.5 * Math.Cos(t % 2600 / 2600 * 2 * Math.PI));

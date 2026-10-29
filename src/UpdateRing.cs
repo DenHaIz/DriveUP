@@ -40,7 +40,6 @@ namespace DriveUp
         float warn, centerFade = 1, popIn = 1, prevPop = 1, progress, shownNumber, capFade = 1;
         string caption = "", prevCaption = "";
         readonly Tweened hover, press;
-        readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         readonly object frameKey = new object(), numKey = new object(), travelKey = new object(), progKey = new object(),
             fadeKey = new object(), popKey = new object(), warnKey = new object(), capKey = new object();
         bool running;
@@ -54,7 +53,9 @@ namespace DriveUp
         }
 
         float RingSize { get { return (Math.Min(Width, Height) - S(24)) * 0.84f; } }
-        float Sec { get { return clock.ElapsedMilliseconds / 1000f; } }
+        // Display frame time, so the arc moves the same amount every refresh (not when the paint happens to run).
+        readonly double born = Anim.Now;
+        float Sec { get { return (float)((Anim.FrameNow - born) / 1000); } }
 
         void DisposeFonts()
         {
@@ -167,6 +168,11 @@ namespace DriveUp
             Invalidate();
         }
 
+        static float SineInOut(float t)
+        {
+            return (float)(0.5 - 0.5 * Math.Cos(Math.PI * Math.Max(0, Math.Min(1, t))));
+        }
+
         static float EaseOutCubic(float t)
         {
             t = Math.Max(0, Math.Min(1, t));
@@ -191,12 +197,14 @@ namespace DriveUp
                 {
                     // Loader: the head runs ahead during the first half of a cycle, the tail catches up
                     // in the second; the whole arc also turns slowly. Seamless from cycle to cycle.
-                    const float period = 1.5f, reach = 250f, min = 22f;
+                    // A gentle sine ease and a longer cycle: the head never moves more than ~8° a frame
+                    // (the cubic one shot ~19°, which on a big ring showed as steps).
+                    const float period = 2.1f, reach = 230f, min = 24f;
                     float cyc = sec / period;
                     float k = (float)Math.Floor(cyc), u = cyc - k;
-                    float head = reach * Anim.EaseInOut(Math.Min(1, u * 2));
-                    float tail = reach * Anim.EaseInOut(Math.Max(0, u * 2 - 1));
-                    start = Logo.SolidStart + sec * 140 + k * reach + tail;
+                    float head = reach * SineInOut(Math.Min(1, u * 2));
+                    float tail = reach * SineInOut(Math.Max(0, u * 2 - 1));
+                    start = Logo.SolidStart + sec * 120 + k * reach + tail;
                     sweep = min + head - tail;
                     return;
                 }
