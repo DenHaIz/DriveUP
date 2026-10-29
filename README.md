@@ -13,7 +13,7 @@
 - **Оптимизация** — режимы «Игры», «Работа» и «Тишина» под ваш компьютер; видно, что меняется и почему, рискованное — только с вашего согласия, любую настройку можно вернуть. Замер системы «до/после» — по желанию. Видна вся автозагрузка: незнакомые DriveUP программы — без галочки и только с вашего подтверждения. Если DriveUP запущен с паролем другого администратора, настраивается тот, кто сидит за компьютером.
 - Перед изменениями — точка восстановления Windows; если защита системы выключена, DriveUP предложит её включить.
 
-Скачайте `DriveUP.exe` в [Releases](https://github.com/DenHaIz/DriveUP-exe/releases) и запустите. Установка не нужна, нужны права администратора. С версии 1.4 программа одна: настройки и изменения прежнего `DriveUP_Pro.exe` подхватываются сами.
+Скачайте `DriveUP.exe` в [Releases](https://github.com/DenHaIz/DriveUP-exe/releases) и запустите. Установка не нужна, нужны права администратора. Настройки (`DriveUP.ini`) и журнал (`DriveUP.log`) хранятся рядом с exe — программу можно носить на флешке. С версии 1.4 программа одна: настройки и изменения прежнего `DriveUP_Pro.exe` подхватываются сами.
 
 ## English
 
@@ -24,7 +24,7 @@
 - **Tuning** — Games, Work and Quiet modes fitted to your computer; you see what changes and why, anything risky needs your yes, and every setting can be returned. Before/after measuring is optional. Every startup program is listed: ones DriveUP does not know are never ticked and need your confirmation. Started with another administrator's password, DriveUP tunes the person signed in at the desktop.
 - A Windows restore point before any change; if System Protection is off, DriveUP offers to turn it on.
 
-Download `DriveUP.exe` from [Releases](https://github.com/DenHaIz/DriveUP-exe/releases) and run it. No install needed, administrator rights required. Since 1.4 there is a single edition: settings and changes made by the former `DriveUP_Pro.exe` are picked up automatically.
+Download `DriveUP.exe` from [Releases](https://github.com/DenHaIz/DriveUP-exe/releases) and run it. No install needed, administrator rights required. Settings (`DriveUP.ini`) and the journal (`DriveUP.log`) live next to the exe, so it travels on a USB stick. Since 1.4 there is a single edition: settings and changes made by the former `DriveUP_Pro.exe` are picked up automatically.
 
 ## Build · Сборка
 
