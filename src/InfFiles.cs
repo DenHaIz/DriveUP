@@ -364,7 +364,7 @@ namespace DriveUp
                         foreach (var id in d.HardwareIds)
                             if (dev.MatchesId(id)) { d.Matches.Add(dev); break; }
             }
-            d.IsChecked = d.Matches.Count > 0;
+            d.IsChecked = d.Matches.Count > 0 && !Firmware.Is(d);   // BIOS: only when ticked by hand
             return d;
         }
 

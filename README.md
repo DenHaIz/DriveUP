@@ -6,7 +6,7 @@
 
 ## Русский
 
-- **Обновления** — драйверы из Windows Update одной кнопкой; новее на сайтах NVIDIA, AMD, Intel, Lenovo, Asus, HP, Dell (с проверкой подписи производителя) и в каталоге Microsoft Update — отметьте несколько, скачайте очередью и установите разом на «Установке»; недостающие Visual C++, .NET и DirectX 9.
+- **Обновления** — драйверы из Windows Update одной кнопкой; новее на сайтах NVIDIA, AMD, Intel, Lenovo, Asus, HP, Dell (с проверкой подписи производителя) и в каталоге Microsoft Update — отметьте несколько, скачайте очередью и установите разом на «Установке»; недостающие Visual C++, .NET и DirectX 9. Обновления BIOS не отмечаются сами и ставятся только с подтверждением и от сети.
 - **Устройства** — все устройства, их драйверы и ошибки; драйвер для неизвестного устройства — из каталога Microsoft.
 - **Установка** — перетащите папку, `.inf`, `.zip` или `.cab`.
 - **Резервные копии** — сохранить драйверы и вернуть их после переустановки Windows.
@@ -17,7 +17,7 @@
 
 ## English
 
-- **Updates** — drivers from Windows Update in one click; newer ones on the NVIDIA, AMD, Intel, Lenovo, Asus, HP and Dell sites (with the vendor's signature checked) and in the Microsoft Update Catalog — tick several, download them in a queue and install them together on the Install tab; missing Visual C++, .NET and DirectX 9.
+- **Updates** — drivers from Windows Update in one click; newer ones on the NVIDIA, AMD, Intel, Lenovo, Asus, HP and Dell sites (with the vendor's signature checked) and in the Microsoft Update Catalog — tick several, download them in a queue and install them together on the Install tab; missing Visual C++, .NET and DirectX 9. BIOS updates are never ticked by default and install only after a confirmation, on mains power.
 - **Devices** — every device, its driver and its errors; a driver for an unknown device from the Microsoft catalog.
 - **Install** — drop a folder, `.inf`, `.zip` or `.cab`.
 - **Backups** — save drivers and bring them back after reinstalling Windows.

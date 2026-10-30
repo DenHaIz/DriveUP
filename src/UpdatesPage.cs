@@ -35,6 +35,8 @@ namespace DriveUp
         int stage, installedCount, attemptedCount;
         string error, retryNote;
         UpdateResult lastResult;
+        // A firmware update was installed: it is flashed at the next restart, which needs the charger.
+        bool firmwarePending;
 
         public UpdatesPage(IHost host) : base(host)
         {
@@ -760,9 +762,11 @@ namespace DriveUp
         {
             if (u.Status.Length > 0) return u.Status;
             var parts = new List<string>();
+            if (Firmware.Is(u)) parts.Add(L.T("прошивка — ставится при перезагрузке, только от сети", "firmware — flashed at the restart, on mains power only"));
             if (u.VersionText.Length > 0) parts.Add(u.VersionText);
             if (u.Date.HasValue) parts.Add(L.Date(u.Date.Value));
-            string s = string.Join(L.T(" от ", ", "), parts);
+            string s = Firmware.Is(u) ? parts[0] + (parts.Count > 1 ? "  ·  " + string.Join(L.T(" от ", ", "), parts.Skip(1)) : "")
+                                      : string.Join(L.T(" от ", ", "), parts);
             if (u.Device != null && u.Device.VersionText.Length > 0)
                 s += L.T("  ·  сейчас ", "  ·  now ") + u.Device.VersionText;
             else if (u.Device != null && !u.Device.HasDriver)
@@ -791,6 +795,17 @@ namespace DriveUp
             {
                 Host.ShowToast(L.T("Отметьте обновления в списке", "Tick updates in the list"), ToastKind.Info);
                 return;
+            }
+            // Firmware only with its own confirmation and the charger plugged in; otherwise the rest goes without it.
+            var firmware = updates.Where(Firmware.Is).ToList();
+            if (firmware.Count > 0 && !Firmware.Confirm(Host.Window, firmware.Count))
+            {
+                foreach (var ci in items.Where(i => firmware.Contains((DriverUpdate)i.Tag))) ci.Checked = false;
+                items = items.Where(i => i.Checked).ToList();
+                updates = updates.Except(firmware).ToList();
+                OnChecksChanged();
+                list.Invalidate();
+                if (updates.Count == 0 || Busy || !Host.CanStartOperation()) return;
             }
             working = true;
             list.Locked = true;
@@ -881,6 +896,7 @@ namespace DriveUp
             lastResult = result;
             installedCount = result.Installed.Count;
             attemptedCount = updates.Count;
+            if (result.Installed.Any(Firmware.Is)) firmwarePending = true;
             Host.EndBusy();
             ring.SetProgress(1);
 
@@ -969,9 +985,16 @@ namespace DriveUp
         {
             if (ThemedDialog.Confirm(Host.Window, L.T("Нужна перезагрузка", "Restart needed"),
                 L.T("Новые драйверы начнут работать после перезагрузки.\nСохраните открытые документы и перезагрузите компьютер.",
-                    "The new drivers start working after a restart.\nSave your open documents and restart the PC."),
+                    "The new drivers start working after a restart.\nSave your open documents and restart the PC.") +
+                (firmwarePending ? Firmware.RestartNote : ""),
                 L.T("Перезагрузить", "Restart now"), "\uE777", false))
             {
+                string problem = firmwarePending ? Firmware.PowerProblem() : null;
+                if (problem != null)
+                {
+                    ThemedDialog.Info(Host.Window, L.T("Сначала подключите зарядку", "Plug in the charger first"), problem, true);
+                    return;
+                }
                 try
                 {
                     UserShell.RestartPc();

@@ -95,7 +95,7 @@ namespace DriveUp
 
         static bool Wanted(Device d)
         {
-            if (d.HardwareIds.Length == 0 || VendorCheck.IsDisplay(d) || d.Disabled) return false;
+            if (d.HardwareIds.Length == 0 || VendorCheck.IsDisplay(d) || d.Disabled || Firmware.Is(d)) return false;
             if (d.NeedsAttention) return true;
             if (!d.HasDriver) return false;
             string first = d.HardwareIds[0];

@@ -24,6 +24,8 @@ namespace DriveUp
         readonly object compactKey = new object();
         float compact;
         bool reading, installing;
+        // Firmware was confirmed for this install: the restart flashes it and needs the charger.
+        bool firmwareQueued;
         string lastFolder;
         /// <summary>Downloads that arrived while files were read or drivers installed: added right after.</summary>
         readonly List<DownloadJob> waiting = new List<DownloadJob>();
@@ -236,7 +238,7 @@ namespace DriveUp
             var row = new InfDriver
             {
                 Path = job.File, Name = v.Title, ClassName = L.T("Установщик производителя", "Vendor's installer"), Provider = v.Vendor,
-                VersionText = v.VersionText, Date = v.Date, IsDevice = true, IsChecked = true, Job = job,
+                VersionText = v.VersionText, Date = v.Date, IsDevice = true, IsChecked = !Firmware.Is(v), Job = job,
                 ClassGuid = v.Device != null ? v.Device.ClassGuid : "",
                 Version = Version.TryParse(v.VersionText, out ver) ? ver : null,
             };
@@ -449,6 +451,19 @@ namespace DriveUp
         {
             var queue = drivers.Where(d => d.IsChecked && d.Checkable).ToList();
             if (queue.Count == 0 || installing || !Host.CanStartOperation()) return;
+            // Firmware (BIOS) only with its own confirmation and the charger plugged in.
+            var firmware = queue.Where(Firmware.Is).ToList();
+            if (firmware.Count > 0)
+            {
+                if (Firmware.Confirm(Host.Window, firmware.Count)) firmwareQueued = true;
+                else
+                {
+                    foreach (var d in firmware) { d.IsChecked = false; UpdateRow(d); }
+                    queue = queue.Except(firmware).ToList();
+                    UpdateButtons();
+                    if (queue.Count == 0 || installing || !Host.CanStartOperation()) return;
+                }
+            }
             // Drivers run in the kernel: say what is about to be installed and from where.
             var sources = queue.Select(d => d.Provider.Length > 0 ? d.Provider : L.T("поставщик не указан", "no provider")).Distinct().Take(4).ToList();
             var folders = queue.Where(d => d.Job == null).Select(d => System.IO.Path.GetDirectoryName(d.Path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -541,6 +556,8 @@ namespace DriveUp
             installing = false;
             Host.EndBusy();
             Inventory.SetDevices(devs, icons);
+            bool firmware = firmwareQueued && queue.Any(d => Firmware.Is(d) && d.State != InfState.Failed);
+            firmwareQueued = false;
             int ok = queue.Count(d => d.State == InfState.Installed), staged = queue.Count(d => d.State == InfState.Staged);
             var failed = queue.Where(d => d.State == InfState.Failed).ToList();
             Journal.Add(JournalKind.Install, ok + staged, failed.Count,
@@ -561,13 +578,22 @@ namespace DriveUp
                 {
                     if (ThemedDialog.Confirm(Host.Window, L.T("Нужна перезагрузка", "Restart needed"),
                         L.T("Драйвер начнёт работать после перезагрузки.\nСохраните открытые документы и перезагрузите компьютер.",
-                            "The driver starts working after a restart.\nSave your open documents and restart the PC."),
+                            "The driver starts working after a restart.\nSave your open documents and restart the PC.") +
+                        (firmware ? Firmware.RestartNote : ""),
                         L.T("Перезагрузить", "Restart now"), "\uE777", false))
+                    {
+                        string problem = firmware ? Firmware.PowerProblem() : null;
+                        if (problem != null)
+                        {
+                            ThemedDialog.Info(Host.Window, L.T("Сначала подключите зарядку", "Plug in the charger first"), problem, true);
+                            return;
+                        }
                         try
                         {
                             UserShell.RestartPc();
                         }
                         catch (Exception ex) { Host.ShowToast(ex.Message, ToastKind.Error); }
+                    }
                 });
         }
 

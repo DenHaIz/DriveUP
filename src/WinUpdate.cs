@@ -135,6 +135,8 @@ namespace DriveUp
                 try { d.Date = ((DateTime)u.DriverVerDate).Date; } catch { }
                 try { d.Size = Convert.ToInt64(u.MaxDownloadSize); } catch { }
                 d.VersionText = VersionFromTitle(d.Title);
+                // BIOS / UEFI: flashed at the restart and only on mains power — never ticked by itself.
+                d.Checked = !Firmware.Is(d);
                 list.Add(d);
             }
             return list;
