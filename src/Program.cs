@@ -96,6 +96,7 @@ namespace DriveUp
                 using (var g = Graphics.FromHwnd(IntPtr.Zero)) scale = g.DpiX / 96f;
                 Theme.Init(scale);
 
+                new System.Threading.Thread(SafePath.CleanStale) { IsBackground = true, Priority = System.Threading.ThreadPriority.BelowNormal }.Start();
                 var form = new MainForm();
                 if (tab >= 1 && tab <= 5) form.StartTab = tab - 1;
                 if (paths.Length > 0) form.StartPaths = paths;

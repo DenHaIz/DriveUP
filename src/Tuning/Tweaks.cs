@@ -408,7 +408,7 @@ namespace DriveUp
             t.SetApartmentState(System.Threading.ApartmentState.STA);
             t.IsBackground = true;
             t.Start();
-            t.Join();
+            if (!t.Join(30000)) throw new TimeoutException(L.T("групповая политика не ответила за 30 секунд", "Group Policy did not answer in 30 seconds"));
             if (error != null) throw error;
         }
 

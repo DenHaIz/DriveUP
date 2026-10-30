@@ -882,8 +882,10 @@ namespace DriveUp
             Size = new Size(w, S(44));
             Left = bottomRight.X - w;
             targetTop = bottomRight.Y - Height;
+            var oldRegion = Region;
             using (var path = Theme.RoundRect(new RectangleF(0, 0, Width, Height), S(8)))
                 Region = new Region(path);
+            if (oldRegion != null) oldRegion.Dispose();   // the setter does not free the old one
             if (!Visible) show.Set(0);
             Visible = true;
             BringToFront();

@@ -562,6 +562,17 @@ namespace DriveUp
                     });
                 return s;
             };
+            // A laptop on its maker's (or its own) power plan: switching to Balanced replaces that plan's battery
+            // settings too, so it is offered, not ticked.
+            Func<Machine, string, Func<string>, TuneStep> powerStep = (m, value, why) =>
+            {
+                string now = null;
+                try { now = power.ValueOf(power.Capture()); } catch { }
+                return m.Mobile && now != null && now.StartsWith("plan:")
+                    ? Opt(power, value, why, () => L.T("сейчас включена схема питания производителя или своя — её заменит «Сбалансированная» вместе с настройками работы от батареи",
+                                                       "the maker's or a custom power plan is active — Balanced replaces it, battery settings included"))
+                    : Step(power, value, why);
+            };
             // Distributed link tracking: only domain networks use it.
             Func<Machine, TuneStep> linksStep = m => m.Managed ? null : Step(links, "manual", () => L.T("Нужна только в сетях с доменом", "Only needed on domain networks"));
             // Windows 11 has no global switch for Store apps in the background any more, only this policy.
@@ -586,14 +597,15 @@ namespace DriveUp
                         m.OnBattery
                             ? Opt(power, "perf", () => L.T("Ноутбук сейчас от батареи — лучше подключить зарядку и применить снова", "The laptop is on battery — plug in and apply again"),
                                 () => L.T("батарея сядет быстрее", "the battery drains faster"))
-                            : Step(power, "perf", () => L.T("Частоты не сбрасываются посреди игры", "Clocks stay up mid-game")),
+                            : powerStep(m, "perf", () => L.T("Частоты не сбрасываются посреди игры", "Clocks stay up mid-game")),
                         Step(boost, pw("2"), () => L.T("Процессор разгоняется сразу и до предела", "The processor boosts right away and all the way") + onMains()),
                         Step(minState, pw("100"), () => L.T("Без падения частоты между кадрами — меньше микрофризов", "No clock drops between frames — fewer micro-stutters") + onMains()),
                         // Ryzen 9 X3D: AMD's driver parks the die without the extra cache during games — leave parking to it.
                         m.DualCcdX3D ? null : Step(cores, pw("100"), () => L.T("Все ядра всегда наготове, без задержки на пробуждение", "All cores always ready, no wake-up delay") + onMains()),
                         Step(epp, pw("0"), () => L.T("Процессор выбирает скорость, а не экономию", "The processor favours speed over saving") + onMains()),
-                        Step(aspm, pw("0"), () => L.T("Видеокарта и NVMe не ждут выхода линии PCIe из сна", "Graphics card and NVMe skip PCIe link wake-up delays") + onMains()),
-                        Step(usb, pw("0"), () => L.T("Мышь и гарнитура не засыпают — без пропусков ввода", "Mouse and headset never doze — no missed input") + onMains()),
+                        // Laptops: link power and USB suspend stay as the maker set them (see Work and Quiet).
+                        m.Mobile ? null : Step(aspm, pw("0"), () => L.T("Видеокарта и NVMe не ждут выхода линии PCIe из сна", "Graphics card and NVMe skip PCIe link wake-up delays")),
+                        m.Mobile ? null : Step(usb, pw("0"), () => L.T("Мышь и гарнитура не засыпают — без пропусков ввода", "Mouse and headset never doze — no missed input")),
                         Step(gameMode, "1", () => L.T("Приоритет игре, обновления не ставятся во время игры", "Games get priority, no updates while playing")),
                         Step(record, "0", () => L.T("Постоянная запись видео в фоне отнимает кадры", "Recording video all the time costs frames")),
                         m.Laptop
@@ -649,7 +661,7 @@ namespace DriveUp
                 {
                     var s = new List<TuneStep>
                     {
-                        Step(power, "balanced", () => m.Laptop
+                        powerStep(m, "balanced", () => m.Laptop
                             ? L.T("Скорость, когда нужна, и долгая работа от батареи", "Speed when needed and long battery life")
                             : L.T("Почти без потери скорости, но тише и экономнее", "Nearly as fast, but quieter and cheaper to run")),
                         Step(boost, m.Mobile ? "2,*" : "2,2", () => L.T("Быстрый отклик в тяжёлых программах", "Quick response in heavy programs")),
@@ -687,7 +699,7 @@ namespace DriveUp
                 {
                     var s = new List<TuneStep>
                     {
-                        Step(power, "saver", () => m.Mobile
+                        powerStep(m, "saver", () => m.Mobile
                             ? L.T("Режим питания «Лучшая энергоэффективность» — как в Параметрах Windows", "\"Best power efficiency\" power mode — as in Windows Settings")
                             : L.T("Меньше нагрев — вентиляторы медленнее", "Less heat — fans spin slower")),
                         Step(boost, m.Mobile ? "0,*" : "0,0", () => L.T("Без разгона: заметно холоднее и тише, тяжёлые задачи медленнее", "No boost: noticeably cooler and quieter, heavy tasks slower") +

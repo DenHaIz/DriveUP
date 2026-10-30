@@ -214,8 +214,9 @@ namespace DriveUp
             if (!finished) error = L.T("установщик ещё работает — DriveUP перестал его ждать", "the installer is still running — DriveUP stopped waiting");
             else if (ok.Contains(code)) reboot = code == 3010 || code == 1641 || (v.Vendor == "Dell" && code == 2);
             else error = L.T("установщик завершился с кодом ", "the installer ended with code ") + code;
-            // Done with it: the folder goes (a still-running installer keeps its files until DriveUP closes).
-            if (finished) try { Directory.Delete(dir, true); } catch { }
+            // Done with it: the folder goes (a still-running installer keeps its files until DriveUP closes;
+            // a failed one keeps them, so that it can be tried again).
+            if (finished && error == null) try { Directory.Delete(dir, true); } catch { }
             return error == null;
         }
 
@@ -223,7 +224,8 @@ namespace DriveUp
         static bool Execute(VendorUpdate v, string file, string dir, out int code)
         {
             code = -1;
-            if (v.SilentArgs == null) return Start(file, "", dir, -1, out code);
+            // With its own windows: as long as a person needs, but not for ever (hidden or hung, it would keep DriveUP open).
+            if (v.SilentArgs == null) return Start(file, "", dir, 2 * 3600000, out code);
             if (v.Vendor != "HP") return Start(file, Expand(v.SilentArgs, dir), dir, 3600000, out code);
             // HP: unpack the SoftPaq quietly into the protected folder, then run its SilentInstall there
             // (what HP Image Assistant does). The SoftPaq was checked; nobody else can write in that folder.

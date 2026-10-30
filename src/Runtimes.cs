@@ -202,6 +202,9 @@ namespace DriveUp
 
         static int busy;
 
+        /// <summary>Components are being installed (an operation: nothing else installs meanwhile, the window waits).</summary>
+        public static bool Busy { get { return busy != 0; } }
+
         /// <summary>Downloads, checks and installs the libraries one after another; done(installed, errors) on the UI thread.</summary>
         public static void Install(IHost host, Control ui, List<Runtime> items, Action<int, List<string>> done)
         {

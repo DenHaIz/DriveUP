@@ -141,9 +141,10 @@ namespace DriveUp
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true };
             using (var p = Process.Start(psi))
             {
-                string err = p.StandardError.ReadToEnd();
+                // Read alongside: a plain ReadToEnd would wait for the end and the time limit would never apply.
+                var err = p.StandardError.ReadToEndAsync();
                 if (!p.WaitForExit(180000)) { try { p.Kill(); } catch { } throw new TimeoutException("PowerShell"); }
-                return err;
+                return err.Result;
             }
         }
 

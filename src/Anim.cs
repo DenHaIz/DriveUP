@@ -186,6 +186,14 @@ namespace DriveUp
                     if (finished && tw.Done != null) tw.Done();
                 }
                 catch (ObjectDisposedException) { Finish(tw); }
+                catch (Exception ex)
+                {
+                    // Dropped, reported once, and the other animations go on: left in the list it would throw
+                    // again every frame, and the error dialog itself needs the clock to appear and close.
+                    Finish(tw);
+                    var report = ex;
+                    if (ui != null) ui.Post(_ => Application.OnThreadException(report), null);
+                }
             }
             if (tweens.Count == 0) active = false;
         }

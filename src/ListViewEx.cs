@@ -148,7 +148,8 @@ namespace DriveUp
             {
                 PlaceSkeleton();
                 skeleton.Visible = true;
-                Shimmer.Run(skeleton, skeleton, () => skeleton.Visible && loading && Items.Count == 0);
+                // Not gated on Visible: pages load while hidden and must shimmer once opened (Run paints only when shown).
+                Shimmer.Run(skeleton, skeleton, () => !skeleton.IsDisposed && loading && Items.Count == 0);
             }
             else skeleton.Visible = false;
         }
@@ -813,6 +814,19 @@ namespace DriveUp
 
         readonly Dictionary<Bitmap, Bitmap> scaledIcons = new Dictionary<Bitmap, Bitmap>();
 
+        /// <summary>Scaled copies of icons that were replaced (a device reload disposes the old sources) are freed.</summary>
+        void TrimIcons()
+        {
+            foreach (var src in new List<Bitmap>(scaledIcons.Keys))
+            {
+                bool gone;
+                try { gone = src.Width <= 0; } catch (ArgumentException) { gone = true; }
+                if (!gone) continue;
+                scaledIcons[src].Dispose();
+                scaledIcons.Remove(src);
+            }
+        }
+
         /// <summary>
         /// Icons are scaled once, in high quality, to the size they are drawn at (premultiplied, the
         /// fastest format to draw): rescaling every icon on every paint made long lists slow to paint.
@@ -820,7 +834,13 @@ namespace DriveUp
         Bitmap Scaled(Bitmap src, int size)
         {
             Bitmap b;
-            if (scaledIcons.TryGetValue(src, out b) && b.Width == size) return b;
+            if (scaledIcons.TryGetValue(src, out b))
+            {
+                if (b.Width == size) return b;
+                b.Dispose();   // the zoom changed
+                scaledIcons.Remove(src);
+            }
+            else if (scaledIcons.Count > 64) TrimIcons();
             b = new Bitmap(size, size, PixelFormat.Format32bppPArgb);
             using (var g = Graphics.FromImage(b))
             {

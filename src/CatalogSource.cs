@@ -14,13 +14,23 @@ namespace DriveUp
     /// <summary>The running Windows: "11"/"10" and its release as a number (24H2 → 242, 1903 → 191).</summary>
     static class WindowsRelease
     {
-        static int key = -1;
+        static volatile int key = -1;
         static bool is11;
+        static readonly object sync = new object();
 
         static void Read()
         {
             if (key >= 0) return;
-            key = 0;
+            lock (sync)
+            {
+                if (key >= 0) return;
+                is11 = false;
+                key = ReadKey();
+            }
+        }
+
+        static int ReadKey()
+        {
             try
             {
                 using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
@@ -30,10 +40,10 @@ namespace DriveUp
                     is11 = build >= 22000;
                     string dv = Convert.ToString(k.GetValue("DisplayVersion"));
                     if (dv.Length == 0) dv = Convert.ToString(k.GetValue("ReleaseId"));
-                    key = Key(dv);
+                    return Math.Max(0, Key(dv));
                 }
             }
-            catch { }
+            catch { return 0; }
         }
 
         public static bool Is11 { get { Read(); return is11; } }

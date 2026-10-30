@@ -69,7 +69,7 @@ namespace DriveUp
             {
                 var p = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = hidden });
                 if (!wantHandle || p == null) return IntPtr.Zero;
-                return OpenProcess(0x00100000 /* SYNCHRONIZE */, false, p.Id);
+                return OpenProcess(0x00100000 /* SYNCHRONIZE */ | 0x0001 /* PROCESS_TERMINATE */ | 0x1000 /* QUERY_LIMITED */, false, p.Id);
             }
             IntPtr shell = GetShellWindow();
             if (shell == IntPtr.Zero) throw new InvalidOperationException(L.T("Проводник Windows не запущен", "Windows Explorer is not running"));
@@ -102,14 +102,22 @@ namespace DriveUp
             }
         }
 
-        /// <summary>Runs a console program as the signed-in user, without a window, and waits for it (exit code; -1 when it did not end in time).</summary>
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+        /// <summary>Runs a console program as the signed-in user, without a window, and waits for it (exit code; -1 when it did not end in time, then it is stopped).</summary>
         public static int RunAsUser(string exe, string args, int timeoutMs)
         {
             IntPtr h = StartAsUser(exe, args, true, true);
             if (h == IntPtr.Zero) return -1;
             try
             {
-                if (WaitForSingleObject(h, (uint)timeoutMs) != 0) return -1;
+                if (WaitForSingleObject(h, (uint)timeoutMs) != 0)
+                {
+                    // Not left running: the caller treats this as a failure and may act on the result.
+                    TerminateProcess(h, 1);
+                    return -1;
+                }
                 int code;
                 return GetExitCodeProcess(h, out code) ? code : -1;
             }

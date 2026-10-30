@@ -76,7 +76,34 @@ namespace DriveUp
                     ChangeWindowMessageFilterEx(Handle, m, MSGFLT_ALLOW, IntPtr.Zero);
             }
             catch (EntryPointNotFoundException) { }
-            watch.Start();
+            SyncWatch();
+        }
+
+        Form hooked;
+
+        /// <summary>
+        /// The 50 ms mouse watch runs only while the zone is shown and another program is active (a drag
+        /// from Explorer); otherwise it would wake DriveUP 20 times a second for its whole life.
+        /// </summary>
+        void SyncWatch()
+        {
+            if (IsDisposed) return;
+            var f = FindForm();
+            if (f != null && f != hooked)
+            {
+                hooked = f;
+                f.Activated += (s, e) => SyncWatch();
+                f.Deactivate += (s, e) => SyncWatch();
+                f.Resize += (s, e) => SyncWatch();
+            }
+            bool on = IsHandleCreated && Visible && f != null && f.WindowState != FormWindowState.Minimized && Form.ActiveForm != f;
+            watch.Enabled = on || drag.Value > 0.01f;
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            SyncWatch();
         }
 
         protected override void WndProc(ref Message m)
@@ -111,6 +138,7 @@ namespace DriveUp
             bool dragging = down && over && Form.ActiveForm != form;
             float target = dragging ? 1 : 0;
             if (Math.Abs(drag.Value - target) > 0.01f && !busy) { drag.To(target, dragging ? 160 : 260); Animate(); }
+            else if (target == 0 && Form.ActiveForm == form) SyncWatch();
         }
 
         void Animate()

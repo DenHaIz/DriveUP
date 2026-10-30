@@ -745,6 +745,7 @@ namespace DriveUp
         void InstallRuntimes(List<Runtime> items)
         {
             if (working || scanning) { Host.ShowToast(L.T("Дождитесь окончания проверки или установки", "Wait until the check or install finishes"), ToastKind.Info); return; }
+            if (!Host.CanStartOperation()) return;
             Runtimes.Install(Host, this, items, (ok, errors) =>
             {
                 if (errors.Count == 0) Host.ShowToast(L.T("Установлено компонентов: ", "Components installed: ") + ok, ToastKind.Success);
@@ -821,6 +822,7 @@ namespace DriveUp
             int total = updates.Count;
             bool wantPoint = Settings.RestorePoint;   // the switch is locked until the end, but read it once
             retryNote = null;
+            WinUpdate.ResetAbort();
 
             var th = new Thread(() =>
             {

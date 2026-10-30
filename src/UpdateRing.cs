@@ -43,7 +43,20 @@ namespace DriveUp
         readonly object frameKey = new object(), numKey = new object(), travelKey = new object(), progKey = new object(),
             fadeKey = new object(), popKey = new object(), warnKey = new object(), capKey = new object();
         bool running;
-        public bool Clickable;
+        bool clickable;
+
+        /// <summary>The ring is a button (ready to install / check again): hand cursor and hover.</summary>
+        public bool Clickable
+        {
+            get { return clickable; }
+            set
+            {
+                if (clickable == value) return;
+                clickable = value;
+                Cursor = value ? Cursors.Hand : Cursors.Default;
+                if (!value && hover != null) hover.To(0, 200);
+            }
+        }
         Font numFont, capFont;
 
         public UpdateRing()
@@ -271,8 +284,6 @@ namespace DriveUp
             g.Clear(bg);
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            Cursor = Clickable ? Cursors.Hand : Cursors.Default;
-            if (!Clickable && hover.Value > 0.001f && hover.Value < 0.999f) hover.To(0, 200);
 
             float scale = 1 + hover.Value * 0.02f - press.Value * 0.03f;
             float ring = RingSize * scale;
@@ -280,6 +291,7 @@ namespace DriveUp
             float stroke = Math.Max(S(8), ring * 0.055f);
             var c = new PointF(Width / 2f, Height / 2f);
             float radius = ring / 2 - stroke / 2;
+            if (radius <= 1) return;
             var arc = new RectangleF(c.X - radius, c.Y - radius, radius * 2, radius * 2);
             float sec = Sec;
             Color violet = Logo.Mark;

@@ -208,6 +208,22 @@ namespace DriveUp
         /// </summary>
         public static string Create(string description, out bool ok)
         {
+            // WMI and VSS can hang (a stuck shadow copy): the install goes on without a point then.
+            string text = null;
+            bool made = false;
+            var th = new System.Threading.Thread(() => { text = CreateNow(description, out made); }) { IsBackground = true, Name = "restore-point" };
+            th.Start();
+            if (!th.Join(180000))
+            {
+                ok = false;
+                return L.T("Windows не создала точку восстановления за 3 минуты", "Windows did not make a restore point within 3 minutes");
+            }
+            ok = made;
+            return text;
+        }
+
+        static string CreateNow(string description, out bool ok)
+        {
             ok = false;
             try
             {

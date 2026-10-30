@@ -53,6 +53,29 @@ namespace DriveUp
         /// A new empty folder that only administrators and SYSTEM may change, under %SystemRoot%\Temp
         /// (a folder ordinary users cannot replace). Random name, refused if it already exists.
         /// </summary>
+        /// <summary>
+        /// Staging folders left by an earlier run (closed mid-download, power cut) are removed at start:
+        /// only DriveUP-* under %SystemRoot%\Temp, older than half a day, never through a link.
+        /// </summary>
+        public static void CleanStale()
+        {
+            if (!Elevated) return;
+            try
+            {
+                string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp");
+                foreach (var dir in Directory.GetDirectories(root, "DriveUP-*"))
+                {
+                    try
+                    {
+                        if (IsLink(dir) || DateTime.UtcNow - Directory.GetCreationTimeUtc(dir) < TimeSpan.FromHours(12)) continue;
+                        Directory.Delete(dir, true);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        }
+
         public static string NewStaging()
         {
             if (!Elevated)

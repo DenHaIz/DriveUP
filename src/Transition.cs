@@ -68,7 +68,8 @@ namespace DriveUp
             ov.Update();
             double t1 = Anim.Now;
 
-            change();
+            try { change(); }
+            catch { ov.Finish(); throw; }
             double t2 = Anim.Now;
 
             GdiBitmap after = GdiBitmap.Snap(target);

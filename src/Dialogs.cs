@@ -55,6 +55,8 @@ namespace DriveUp
             };
             Controls.Add(msg);
             Controls.Add(icon);
+            var iconFont = icon.Font;
+            Disposed += (s, e) => iconFont.Dispose();   // made for this dialog only
 
             var footer = new Panel { BackColor = p.Surface, Height = Theme.S(64), Dock = DockStyle.Bottom };
             footer.Paint += (s, e) =>

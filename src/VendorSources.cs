@@ -359,10 +359,12 @@ namespace DriveUp
             // Package descriptions are small: read them a few at a time.
             var found = new List<VendorUpdate>();
             int next = -1;
+            // Within the whole check's budget (40 s): nothing keeps fetching after it gave up.
+            var deadline = DateTime.UtcNow.AddSeconds(30);
             var workers = Enumerable.Range(0, 6).Select(_ => new Thread(() =>
             {
                 int i;
-                while ((i = Interlocked.Increment(ref next)) < locations.Count)
+                while (DateTime.UtcNow < deadline && (i = Interlocked.Increment(ref next)) < locations.Count)
                 {
                     try
                     {
@@ -373,7 +375,11 @@ namespace DriveUp
                 }
             }) { IsBackground = true }).ToList();
             foreach (var w in workers) w.Start();
-            foreach (var w in workers) w.Join(30000);
+            foreach (var w in workers)
+            {
+                var left = deadline.AddSeconds(3) - DateTime.UtcNow;
+                if (left > TimeSpan.Zero) w.Join(left);
+            }
             // One line per device: the newest package.
             lock (found)
                 foreach (var g in found.GroupBy(v => v.Device))
@@ -481,7 +487,7 @@ namespace DriveUp
             if (!pc.IsAsus || model.Length == 0) return result;
             string url = "https://www.asus.com/support/api/product.asmx/GetPDDrivers?website=global&model=" + Uri.EscapeDataString(model) +
                          "&osid=" + (pc.IsWindows11 ? "52" : "45") + "&pdhashedid=&pdid=";
-            return Match(VendorCheck.Json(VendorCheck.Get(url, null, 45000)), model, devices);
+            return Match(VendorCheck.Json(VendorCheck.Get(url, null, 30000)), model, devices);
         }
 
         /// <summary>

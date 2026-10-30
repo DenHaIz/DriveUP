@@ -79,7 +79,12 @@ namespace DriveUp
         {
             try
             {
-                if (IsHandleCreated && !IsDisposed) Invoke((MethodInvoker)delegate { a(); });
+                if (IsHandleCreated && !IsDisposed) Invoke((MethodInvoker)delegate
+                {
+                    // Thrown inside Invoke, it would come back on the background thread and end the process.
+                    try { a(); }
+                    catch (System.Exception ex) { Application.OnThreadException(ex); }
+                });
             }
             catch (System.ObjectDisposedException) { }
             catch (System.InvalidOperationException) { }

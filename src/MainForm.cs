@@ -263,13 +263,16 @@ namespace DriveUp
                     closing = true;
                     WinUpdate.RequestAbort();
                     ShowToast(L.T("Останавливаю Windows Update…", "Stopping Windows Update…"), ToastKind.Info);
-                    Anim.Frame(this, () =>
+                    // A few checks a second are enough (the animation clock would poll at display rate for minutes).
+                    var wait = new System.Windows.Forms.Timer { Interval = 300 };
+                    wait.Tick += (s, a) =>
                     {
-                        if (IsDisposed) return false;
-                        if (OperationRunning) return true;
-                        BeginInvoke((MethodInvoker)Close);
-                        return false;
-                    });
+                        if (IsDisposed) { wait.Dispose(); return; }
+                        if (OperationRunning) return;
+                        wait.Dispose();
+                        Close();
+                    };
+                    wait.Start();
                 }
                 return;
             }
@@ -290,7 +293,7 @@ namespace DriveUp
         {
             get
             {
-                if (tunePage.Working) return true;
+                if (tunePage.Working || Runtimes.Busy) return true;
                 return updatesPage.Installing || installPage.Installing || backupPage.Working;
             }
         }

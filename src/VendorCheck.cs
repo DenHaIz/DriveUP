@@ -252,6 +252,8 @@ namespace DriveUp
             // csc builds the exe without a target-framework mark, so .NET would offer old TLS only.
             try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch { }
             try { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)12288; } catch { }   // TLS 1.3 where Windows has it
+            // The default is 2 per host: the catalog and Lenovo checks ask 4–6 things at once.
+            if (ServicePointManager.DefaultConnectionLimit < 16) ServicePointManager.DefaultConnectionLimit = 16;
         }
 
         const string Agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
@@ -309,7 +311,15 @@ namespace DriveUp
             var body = Encoding.ASCII.GetBytes(form);
             rq.ContentLength = body.Length;
             using (var s = rq.GetRequestStream()) s.Write(body, 0, body.Length);
-            using (var resp = (HttpWebResponse)rq.GetResponse())
+            HttpWebResponse answer;
+            try { answer = (HttpWebResponse)rq.GetResponse(); }
+            catch (WebException ex)
+            {
+                // An error answer left open holds one of the host's connections for good.
+                if (ex.Response != null) ex.Response.Close();
+                throw;
+            }
+            using (var resp = answer)
             using (var r = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
             {
                 var buf = new char[65536];
@@ -374,8 +384,10 @@ namespace DriveUp
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                var we = ex as WebException;
+                if (we != null && we.Response != null) we.Response.Close();
                 try { File.Delete(path); } catch { }
                 throw;
             }

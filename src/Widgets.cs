@@ -23,6 +23,8 @@ namespace DriveUp
         public Card()
         {
             Padding = new Padding(Theme.S(1));
+            // The rounded corners and the border depend on the size: a partial repaint left old lines behind.
+            SetStyle(ControlStyles.ResizeRedraw, true);
         }
 
         public void ApplyTheme()

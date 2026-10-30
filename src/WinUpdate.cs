@@ -48,6 +48,12 @@ namespace DriveUp
         void Invoke([MarshalAs(UnmanagedType.IUnknown)] object job, [MarshalAs(UnmanagedType.IUnknown)] object args);
     }
 
+    [ComImport, Guid("88AEE058-D4B0-4725-A2F1-814A67AE964C"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface ISearchCompletedCallback
+    {
+        void Invoke([MarshalAs(UnmanagedType.IUnknown)] object job, [MarshalAs(UnmanagedType.IUnknown)] object args);
+    }
+
     [ComImport, Guid("E01402D5-F8DA-43BA-A012-38894BD048F1"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IInstallationProgressChangedCallback
     {
@@ -62,8 +68,9 @@ namespace DriveUp
 
     [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
     public class WuCallbacks : IDownloadProgressChangedCallback, IDownloadCompletedCallback,
-        IInstallationProgressChangedCallback, IInstallationCompletedCallback
+        IInstallationProgressChangedCallback, IInstallationCompletedCallback, ISearchCompletedCallback
     {
+        void ISearchCompletedCallback.Invoke(object job, object args) { }
         void IDownloadProgressChangedCallback.Invoke(object job, object args) { }
         void IDownloadCompletedCallback.Invoke(object job, object args) { }
         void IInstallationProgressChangedCallback.Invoke(object job, object args) { }
@@ -82,6 +89,11 @@ namespace DriveUp
         /// <summary>Asks Windows Update to stop the download / install that is running (it finishes or rolls back the current one).</summary>
         public static void RequestAbort() { abort = true; }
 
+        /// <summary>Called on the UI thread before an install starts: a stop asked for after this point is kept.</summary>
+        public static void ResetAbort() { abort = false; }
+
+        static Exception Cancelled() { return new OperationCanceledException(L.T("операция отменена", "the operation was cancelled")); }
+
         const string Criteria = "IsInstalled=0 and Type='Driver' and IsHidden=0";
 
         static dynamic NewSession()
@@ -93,8 +105,44 @@ namespace DriveUp
             return session;
         }
 
-        /// <summary>Takes from half a minute to a few minutes; call on a background (MTA) thread.</summary>
+        /// <summary>
+        /// How long a search may take. Usually half a minute to two; with no answer from Microsoft's servers
+        /// (network, proxy, the agent busy with its own scan or a pending restart) a search never completes.
+        /// </summary>
+        public static TimeSpan SearchLimit = TimeSpan.FromMinutes(4);
+
+        class SearchRun
+        {
+            public volatile bool GiveUp;
+        }
+
+        /// <summary>
+        /// Takes from half a minute to a few minutes, at most SearchLimit. The agent is called on a worker thread
+        /// that is simply left behind at the limit: after RequestAbort even EndSearch and CleanUp can block for good.
+        /// </summary>
         public static List<DriverUpdate> Search()
+        {
+            var run = new SearchRun();
+            List<DriverUpdate> list = null;
+            Exception error = null;
+            var th = new Thread(() =>
+            {
+                try { list = SearchNow(run); }
+                catch (Exception ex) { error = ex; }
+            }) { IsBackground = true, Name = "wu-search" };
+            th.SetApartmentState(ApartmentState.MTA);
+            th.Start();
+            if (!th.Join(SearchLimit))
+            {
+                run.GiveUp = true;
+                throw new TimeoutException(L.T("Windows Update не ответил за " + (int)SearchLimit.TotalMinutes + " мин — проверьте интернет или попробуйте позже",
+                                               "Windows Update did not answer in " + (int)SearchLimit.TotalMinutes + " min — check the Internet connection or try later"));
+            }
+            if (error != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error).Throw();
+            return list;
+        }
+
+        static List<DriverUpdate> SearchNow(SearchRun run)
         {
             dynamic session = NewSession();
             dynamic result;
@@ -103,15 +151,16 @@ namespace DriveUp
                 dynamic searcher = session.CreateUpdateSearcher();
                 searcher.Online = true;
                 searcher.ServerSelection = 2;   // ssWindowsUpdate
-                result = searcher.Search(Criteria);
+                result = SearchAsync(searcher, run);
             }
             catch (COMException)
             {
                 // Policy may forbid going to Windows Update directly: use whatever this PC is set up for.
                 dynamic searcher = session.CreateUpdateSearcher();
                 searcher.Online = true;
-                result = searcher.Search(Criteria);
+                result = SearchAsync(searcher, run);
             }
+            if (result == null) return null;   // given up: nobody waits for it any more
 
             // 4 = failed, 5 = aborted: not the same as "nothing found".
             int rc = 2;
@@ -140,6 +189,24 @@ namespace DriveUp
                 list.Add(d);
             }
             return list;
+        }
+
+        /// <summary>The search as a job, so that it can be aborted when the caller gives up (null then).</summary>
+        static dynamic SearchAsync(dynamic searcher, SearchRun run)
+        {
+            var cb = new WuCallbacks();
+            dynamic job = searcher.BeginSearch(Criteria, cb, null);
+            while (!(bool)job.IsCompleted)
+            {
+                if (run.GiveUp)
+                {
+                    try { job.RequestAbort(); } catch { }
+                    return null;
+                }
+                Thread.Sleep(200);
+            }
+            try { return searcher.EndSearch(job); }
+            finally { try { job.CleanUp(); } catch { } }
         }
 
         static string Str(Func<object> get)
@@ -176,7 +243,7 @@ namespace DriveUp
                 toDownload.Add(com);
             }
 
-            abort = false;
+            if (abort) throw Cancelled();
             // ----- download -----
             progress(0, 0, 0);
             dynamic downloader = session.CreateUpdateDownloader();
@@ -204,9 +271,10 @@ namespace DriveUp
                 }
                 dres = downloader.EndDownload(job);
             }
-            else dres = downloader.Download();   // asynchronous download refused (old agent): in one go
+            else if (!abort) dres = downloader.Download();   // asynchronous download refused (old agent): in one go
             progress(0, 1, updates.Count - 1);
 
+            if (abort) throw Cancelled();
             dynamic toInstall = Activator.CreateInstance(collType);
             var installing = new List<DriverUpdate>();
             for (int i = 0; i < updates.Count; i++)
